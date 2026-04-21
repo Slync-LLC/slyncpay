@@ -348,7 +348,7 @@ export const webhookEndpoints = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     url: text("url").notNull(),
     description: text("description"),
-    events: text("events").array().notNull().default([]),
+    events: text("events").array().notNull().default(sql`'{}'::text[]`),
     signingSecret: text("signing_secret").notNull(),
     status: webhookEndpointStatusEnum("status").notNull().default("active"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -256,7 +256,7 @@ CREATE TABLE IF NOT EXISTS "webhook_endpoints" (
 	"tenant_id" uuid NOT NULL,
 	"url" text NOT NULL,
 	"description" text,
-	"events" text[] DEFAULT  NOT NULL,
+	"events" text[] DEFAULT '{}'::text[] NOT NULL,
 	"signing_secret" text NOT NULL,
 	"status" "webhook_endpoint_status" DEFAULT 'active' NOT NULL,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
