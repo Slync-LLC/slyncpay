@@ -51,6 +51,29 @@ app.get("/health/db", async (c) => {
   }
 });
 
+app.get("/health/migrate", async (c) => {
+  try {
+    await runMigrations();
+    return c.json({ status: "ok" });
+  } catch (err: unknown) {
+    const e = err as Error;
+    return c.json({ status: "error", message: e.message, stack: e.stack }, 500);
+  }
+});
+
+app.get("/health/tables", async (c) => {
+  try {
+    const { db, sql } = await import("@slyncpay/db");
+    const result = await db.execute(
+      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
+    );
+    return c.json({ tables: result.map((r: Record<string, unknown>) => r["table_name"]) });
+  } catch (err: unknown) {
+    const e = err as Error;
+    return c.json({ status: "error", message: e.message }, 500);
+  }
+});
+
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
