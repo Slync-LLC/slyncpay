@@ -99,6 +99,9 @@ export const tenants = pgTable(
 
     brandingConfig: jsonb("branding_config").notNull().default({}),
 
+    // Dashboard auth
+    passwordHash: text("password_hash"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     provisionedAt: timestamp("provisioned_at", { withTimezone: true }),

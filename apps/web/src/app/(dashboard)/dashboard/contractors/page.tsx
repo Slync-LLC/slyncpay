@@ -2,8 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/nextjs";
 import { Users, Search, Plus, ChevronRight } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 

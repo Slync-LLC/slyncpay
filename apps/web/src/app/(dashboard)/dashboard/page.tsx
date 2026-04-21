@@ -1,6 +1,5 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
 import { formatCurrency } from "@/lib/utils";
 import { Users, Building2, FileText, Banknote, TrendingUp, ArrowUpRight } from "lucide-react";
 import Link from "next/link";

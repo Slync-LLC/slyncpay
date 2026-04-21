@@ -13,4 +13,5 @@ export const env = {
   PORT: parseInt(process.env["PORT"] ?? "3001", 10),
   API_SECRET: process.env["API_SECRET"] ?? "dev-secret",
   EIN_ENCRYPTION_KEY: required("EIN_ENCRYPTION_KEY"),
+  JWT_SECRET: required("JWT_SECRET"),
 } as const;
