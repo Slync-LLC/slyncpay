@@ -79,7 +79,8 @@ app.onError((err, c) => {
     return c.json({ error: "http_error", message: err.message, statusCode: err.status }, err.status);
   }
 
-  return c.json({ error: "internal_server_error", message: "An unexpected error occurred", statusCode: 500 }, 500);
+  const msg = process.env["NODE_ENV"] !== "production" ? (err as Error).message : "An unexpected error occurred";
+  return c.json({ error: "internal_server_error", message: msg, statusCode: 500 }, 500);
 });
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
