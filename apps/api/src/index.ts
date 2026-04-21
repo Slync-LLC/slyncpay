@@ -14,6 +14,7 @@ import { payableRoutes } from "./routes/payables.js";
 import { disbursementRoutes } from "./routes/disbursements.js";
 import { startTenantSetupWorker } from "./workers/tenant-setup.worker.js";
 import { startEntitySetupWorker } from "./workers/entity-setup.worker.js";
+import { runMigrations } from "@slyncpay/db";
 
 const app = new Hono();
 
@@ -70,21 +71,28 @@ app.onError((err, c) => {
   return c.json({ error: "internal_server_error", message: "An unexpected error occurred", statusCode: 500 }, 500);
 });
 
-// ─── Start workers ────────────────────────────────────────────────────────────
+// ─── Boot sequence ────────────────────────────────────────────────────────────
 
-const tenantWorker = startTenantSetupWorker();
-const entityWorker = startEntitySetupWorker();
+async function boot() {
+  await runMigrations();
 
-tenantWorker.on("failed", (job, err) => {
-  console.error(`[TenantSetup] Job ${job?.id} failed:`, err.message);
-});
+  const tenantWorker = startTenantSetupWorker();
+  const entityWorker = startEntitySetupWorker();
 
-entityWorker.on("failed", (job, err) => {
-  console.error(`[EntitySetup] Job ${job?.id} failed:`, err.message);
-});
+  tenantWorker.on("failed", (job, err) => {
+    console.error(`[TenantSetup] Job ${job?.id} failed:`, err.message);
+  });
 
-// ─── Start server ─────────────────────────────────────────────────────────────
+  entityWorker.on("failed", (job, err) => {
+    console.error(`[EntitySetup] Job ${job?.id} failed:`, err.message);
+  });
 
-serve({ fetch: app.fetch, port: env.PORT }, () => {
-  console.log(`SlyncPay API running on port ${env.PORT}`);
+  serve({ fetch: app.fetch, port: env.PORT }, () => {
+    console.log(`SlyncPay API running on port ${env.PORT}`);
+  });
+}
+
+boot().catch((err) => {
+  console.error("Failed to start:", err);
+  process.exit(1);
 });
