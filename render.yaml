@@ -1,0 +1,72 @@
+services:
+  - type: web
+    name: slyncpay-api
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: apps/api
+    buildCommand: cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/api build
+    startCommand: node dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        fromDatabase:
+          name: slyncpay-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: slyncpay-redis
+          property: connectionString
+      - key: WINGSPAN_API_KEY
+        sync: false
+      - key: WINGSPAN_BASE_URL
+        value: https://api.wingspan.app
+      - key: JWT_SECRET
+        generateValue: true
+
+  - type: web
+    name: slyncpay-web
+    runtime: node
+    region: oregon
+    plan: starter
+    rootDir: apps/web
+    buildCommand: cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/web build
+    startCommand: node .next/standalone/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: NEXT_PUBLIC_API_URL
+        fromService:
+          type: web
+          name: slyncpay-api
+          property: host
+          envVarKey: NEXT_PUBLIC_API_URL
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_CLERK_SIGN_IN_URL
+        value: /sign-in
+      - key: NEXT_PUBLIC_CLERK_SIGN_UP_URL
+        value: /sign-up
+
+  - type: redis
+    name: slyncpay-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction
+
+databases:
+  - name: slyncpay-db
+    databaseName: slyncpay
+    region: oregon
+    plan: starter
+    postgresMajorVersion: 16

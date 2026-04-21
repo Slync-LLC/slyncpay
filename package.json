@@ -1,0 +1,18 @@
+{
+  "name": "slyncpay",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck",
+    "db:generate": "turbo db:generate",
+    "db:migrate": "turbo db:migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0",
+    "@types/node": "^20.0.0"
+  }
+}
