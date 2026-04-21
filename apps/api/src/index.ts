@@ -40,40 +40,6 @@ app.route("/v1/disbursements", disbursementRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok", version: "1.0.0" }));
 
-app.get("/health/db", async (c) => {
-  try {
-    const { db, sql } = await import("@slyncpay/db");
-    const result = await db.execute(sql`SELECT current_database() AS db, version() AS ver`);
-    return c.json({ status: "ok", row: result[0] });
-  } catch (err: unknown) {
-    const e = err as Error;
-    return c.json({ status: "error", message: e.message }, 500);
-  }
-});
-
-app.get("/health/migrate", async (c) => {
-  try {
-    await runMigrations();
-    return c.json({ status: "ok" });
-  } catch (err: unknown) {
-    const e = err as Error;
-    return c.json({ status: "error", message: e.message, stack: e.stack }, 500);
-  }
-});
-
-app.get("/health/tables", async (c) => {
-  try {
-    const { db, sql } = await import("@slyncpay/db");
-    const result = await db.execute(
-      sql`SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name`,
-    );
-    return c.json({ tables: result.map((r: Record<string, unknown>) => r["table_name"]) });
-  } catch (err: unknown) {
-    const e = err as Error;
-    return c.json({ status: "error", message: e.message }, 500);
-  }
-});
-
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
@@ -102,18 +68,13 @@ app.onError((err, c) => {
     return c.json({ error: "http_error", message: err.message, statusCode: err.status }, err.status);
   }
 
-  const msg = process.env["NODE_ENV"] !== "production" ? (err as Error).message : "An unexpected error occurred";
-  return c.json({ error: "internal_server_error", message: msg, statusCode: 500 }, 500);
+  return c.json({ error: "internal_server_error", message: "An unexpected error occurred", statusCode: 500 }, 500);
 });
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
 async function boot() {
-  try {
-    await runMigrations();
-  } catch (err: unknown) {
-    console.error("[boot] Migration failed, continuing anyway:", (err as Error).message);
-  }
+  await runMigrations();
 
   const tenantWorker = startTenantSetupWorker();
   const entityWorker = startEntitySetupWorker();
