@@ -4,9 +4,8 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    rootDir: apps/api
-    buildCommand: cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/api build
-    startCommand: node dist/index.js
+    buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/api build && NODE_ENV=development DATABASE_URL=$DATABASE_URL pnpm --filter @slyncpay/db db:migrate
+    startCommand: node apps/api/dist/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -21,42 +20,40 @@ services:
           type: redis
           name: slyncpay-redis
           property: connectionString
-      - key: WINGSPAN_API_KEY
+      - key: WINGSPAN_ROOT_API_TOKEN
+        sync: false
+      - key: WINGSPAN_ROOT_USER_ID
         sync: false
       - key: WINGSPAN_BASE_URL
         value: https://api.wingspan.app
+      - key: EIN_ENCRYPTION_KEY
+        generateValue: true
       - key: JWT_SECRET
         generateValue: true
+      - key: ALLOWED_ORIGINS
+        value: https://slyncpay-web.onrender.com
 
   - type: web
     name: slyncpay-web
     runtime: node
     region: oregon
     plan: starter
-    rootDir: apps/web
-    buildCommand: cd ../.. && pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/web build
-    startCommand: node .next/standalone/server.js
+    buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/web build && cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static && cp -r apps/web/public apps/web/.next/standalone/apps/web/public
+    startCommand: node apps/web/.next/standalone/apps/web/server.js
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-      - key: NEXT_PUBLIC_API_URL
+      - key: API_URL
+        value: https://slyncpay-api.onrender.com
+      - key: JWT_SECRET
         fromService:
           type: web
           name: slyncpay-api
-          property: host
-          envVarKey: NEXT_PUBLIC_API_URL
+          envVarKey: JWT_SECRET
       - key: NEXT_TELEMETRY_DISABLED
         value: "1"
-      - key: CLERK_SECRET_KEY
-        sync: false
-      - key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-        sync: false
-      - key: NEXT_PUBLIC_CLERK_SIGN_IN_URL
-        value: /sign-in
-      - key: NEXT_PUBLIC_CLERK_SIGN_UP_URL
-        value: /sign-up
 
   - type: redis
     name: slyncpay-redis
