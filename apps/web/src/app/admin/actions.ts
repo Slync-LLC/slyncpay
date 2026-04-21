@@ -97,3 +97,20 @@ export async function updateTenantStatus(tenantId: string, status: "active" | "s
 
   if (!res.ok) throw new Error("Failed to update tenant status");
 }
+
+export async function deleteTenant(tenantId: string): Promise<{ error?: string }> {
+  const adminToken = cookies().get(ADMIN_COOKIE)?.value;
+  if (!adminToken) redirect("/admin/login");
+
+  const res = await fetch(`${API_URL}/v1/admin/tenants/${tenantId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${adminToken}` },
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    return { error: body.message ?? "Failed to delete tenant" };
+  }
+
+  redirect("/admin/tenants");
+}

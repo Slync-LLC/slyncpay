@@ -114,6 +114,13 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
     return c.json({ error: "invalid_credentials", message: "Invalid email or password" }, 401);
   }
 
+  if (tenant.status === "cancelled" || tenant.status === "suspended") {
+    return c.json(
+      { error: "account_inactive", message: "This account is no longer active" },
+      403,
+    );
+  }
+
   const token = await signSession({
     sub: tenant.id,
     tenantId: tenant.id,

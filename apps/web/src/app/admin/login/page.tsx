@@ -19,57 +19,51 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <div className="w-full max-w-sm">
         <div className="flex items-center justify-center gap-2 mb-8">
-          <Shield className="h-6 w-6 text-orange-400" />
-          <span className="text-xl font-bold text-zinc-100 tracking-tight">SlyncPay Admin</span>
+          <Shield className="h-5 w-5 text-primary" />
+          <span className="text-lg font-bold tracking-tight">SlyncPay Admin</span>
         </div>
 
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-8">
-          <h1 className="text-base font-semibold text-zinc-100 mb-1">Administrator sign in</h1>
-          <p className="text-sm text-zinc-500 mb-6">Internal access only.</p>
+        <div className="bg-white rounded-xl border border-border p-8 shadow-sm">
+          <h1 className="text-xl font-bold mb-1">Administrator sign in</h1>
+          <p className="text-sm text-muted-foreground mb-6">Internal access only.</p>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-sm rounded-md px-3 py-2">
-                {error}
-              </div>
+              <div className="bg-destructive/10 text-destructive text-sm rounded-md px-3 py-2">{error}</div>
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-zinc-300 mb-1.5">
-                Email
-              </label>
+              <label htmlFor="email" className="block text-sm font-medium mb-1.5">Email</label>
               <input
                 id="email"
                 name="email"
                 type="email"
                 required
                 autoComplete="email"
-                className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-400/30 focus:border-orange-400/60 placeholder:text-zinc-600"
+                className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 placeholder="admin@slync.ai"
               />
             </div>
 
             <div>
-              <label htmlFor="password" className="block text-sm font-medium text-zinc-300 mb-1.5">
-                Password
-              </label>
+              <label htmlFor="password" className="block text-sm font-medium mb-1.5">Password</label>
               <input
                 id="password"
                 name="password"
                 type="password"
                 required
                 autoComplete="current-password"
-                className="w-full px-3 py-2 text-sm bg-zinc-800 border border-zinc-700 text-zinc-100 rounded-md focus:outline-none focus:ring-2 focus:ring-orange-400/30 focus:border-orange-400/60"
+                className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
               />
             </div>
 
             <button
               type="submit"
               disabled={isPending}
-              className="w-full bg-orange-500 hover:bg-orange-400 text-white py-2.5 rounded-md text-sm font-medium transition-colors disabled:opacity-60"
+              className="w-full bg-primary text-primary-foreground py-2.5 rounded-md text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-60"
             >
               {isPending ? "Signing in…" : "Sign in"}
             </button>
