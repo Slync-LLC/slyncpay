@@ -13,7 +13,7 @@ const db = drizzle(migrationClient);
 
 async function main() {
   await migrate(db, {
-    migrationsFolder: path.join(process.cwd(), "migrations"),
+    migrationsFolder: path.join(__dirname, "../migrations"),
   });
   console.log("Migrations complete");
   await migrationClient.end();
