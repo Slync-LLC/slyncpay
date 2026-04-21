@@ -40,6 +40,17 @@ app.route("/v1/disbursements", disbursementRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok", version: "1.0.0" }));
 
+app.get("/health/db", async (c) => {
+  try {
+    const { db, sql } = await import("@slyncpay/db");
+    const result = await db.execute(sql`SELECT current_database() AS db, version() AS ver`);
+    return c.json({ status: "ok", row: result[0] });
+  } catch (err: unknown) {
+    const e = err as Error;
+    return c.json({ status: "error", message: e.message }, 500);
+  }
+});
+
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
@@ -74,7 +85,11 @@ app.onError((err, c) => {
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
 async function boot() {
-  await runMigrations();
+  try {
+    await runMigrations();
+  } catch (err: unknown) {
+    console.error("[boot] Migration failed, continuing anyway:", (err as Error).message);
+  }
 
   const tenantWorker = startTenantSetupWorker();
   const entityWorker = startEntitySetupWorker();
