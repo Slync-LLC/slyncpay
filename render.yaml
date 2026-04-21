@@ -4,7 +4,7 @@ services:
     runtime: node
     region: oregon
     plan: starter
-    buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/api build && NODE_ENV=development DATABASE_URL=$DATABASE_URL pnpm --filter @slyncpay/db db:migrate
+    buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/api build
     startCommand: node apps/api/dist/index.js
     envVars:
       - key: NODE_ENV
