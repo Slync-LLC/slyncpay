@@ -16,7 +16,7 @@ import { disbursementRoutes } from "./routes/disbursements.js";
 import { adminRoutes } from "./routes/admin.js";
 import { startTenantSetupWorker } from "./workers/tenant-setup.worker.js";
 import { startEntitySetupWorker } from "./workers/entity-setup.worker.js";
-import { runMigrations } from "@slyncpay/db";
+import { db, admins, eq, runMigrations } from "@slyncpay/db";
 
 const app = new Hono();
 
@@ -81,7 +81,6 @@ async function seedAdmin() {
   const password = process.env["ADMIN_SEED_PASSWORD"];
   if (!email || !password) return;
 
-  const { db, admins, eq } = await import("@slyncpay/db");
   const existing = await db.select({ id: admins.id }).from(admins).where(eq(admins.email, email)).limit(1);
   if (existing.length > 0) return;
 
