@@ -20,8 +20,9 @@ async function getSession() {
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
+  const impersonating = cookies().get("__slyncpay_impersonating")?.value;
   return (
-    <DashboardLayoutClient email={session.email} name={session.name}>
+    <DashboardLayoutClient email={session.email} name={session.name} impersonating={impersonating}>
       {children}
     </DashboardLayoutClient>
   );

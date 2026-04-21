@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Providers } from "@/components/providers";
 import { signOut } from "@/app/(auth)/actions";
+import { exitImpersonation } from "@/app/admin/actions";
 import {
   LayoutDashboard,
   Users,
@@ -16,6 +17,7 @@ import {
   Settings,
   Webhook,
   LogOut,
+  Shield,
 } from "lucide-react";
 
 const navItems = [
@@ -35,15 +37,30 @@ const developerItems = [
 interface Props {
   email: string;
   name: string;
+  impersonating?: string;
   children: React.ReactNode;
 }
 
-export function DashboardLayoutClient({ email, name, children }: Props) {
+export function DashboardLayoutClient({ email, name, impersonating, children }: Props) {
   const pathname = usePathname();
   const initial = (name || email).charAt(0).toUpperCase();
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="flex flex-col h-screen bg-background">
+      {impersonating && (
+        <div className="flex items-center justify-between bg-orange-500 text-white px-4 py-2 text-xs font-medium flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5" />
+            <span>Admin view: impersonating <strong>{impersonating}</strong></span>
+          </div>
+          <form action={exitImpersonation}>
+            <button type="submit" className="underline hover:no-underline">
+              Exit impersonation
+            </button>
+          </form>
+        </div>
+      )}
+      <div className="flex flex-1 overflow-hidden">
       <aside className="w-56 border-r border-border flex flex-col bg-white">
         <div className="px-4 py-5 border-b border-border">
           <Link href="/dashboard" className="font-bold text-lg tracking-tight">
@@ -113,9 +130,10 @@ export function DashboardLayoutClient({ email, name, children }: Props) {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-y-auto">
-        <Providers>{children}</Providers>
-      </main>
+        <main className="flex-1 overflow-y-auto">
+          <Providers>{children}</Providers>
+        </main>
+      </div>
     </div>
   );
 }

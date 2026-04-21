@@ -4,6 +4,7 @@ import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { HTTPException } from "hono/http-exception";
 import { ZodError } from "zod";
+import bcrypt from "bcrypt";
 import { env } from "./lib/env.js";
 import { ApiError } from "./lib/errors.js";
 import { authRoutes } from "./routes/auth.js";
@@ -12,6 +13,7 @@ import { entityRoutes } from "./routes/entities.js";
 import { contractorRoutes } from "./routes/contractors.js";
 import { payableRoutes } from "./routes/payables.js";
 import { disbursementRoutes } from "./routes/disbursements.js";
+import { adminRoutes } from "./routes/admin.js";
 import { startTenantSetupWorker } from "./workers/tenant-setup.worker.js";
 import { startEntitySetupWorker } from "./workers/entity-setup.worker.js";
 import { runMigrations } from "@slyncpay/db";
@@ -37,6 +39,7 @@ app.route("/v1/entities", entityRoutes);
 app.route("/v1/contractors", contractorRoutes);
 app.route("/v1/payables", payableRoutes);
 app.route("/v1/disbursements", disbursementRoutes);
+app.route("/v1/admin", adminRoutes);
 
 app.get("/health", (c) => c.json({ status: "ok", version: "1.0.0" }));
 
@@ -73,8 +76,23 @@ app.onError((err, c) => {
 
 // ─── Boot sequence ────────────────────────────────────────────────────────────
 
+async function seedAdmin() {
+  const email = process.env["ADMIN_SEED_EMAIL"];
+  const password = process.env["ADMIN_SEED_PASSWORD"];
+  if (!email || !password) return;
+
+  const { db, admins, eq } = await import("@slyncpay/db");
+  const existing = await db.select({ id: admins.id }).from(admins).where(eq(admins.email, email)).limit(1);
+  if (existing.length > 0) return;
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  await db.insert(admins).values({ email, passwordHash, name: "Admin" });
+  console.log("[seed] Admin account created for", email);
+}
+
 async function boot() {
   await runMigrations();
+  await seedAdmin();
 
   const tenantWorker = startTenantSetupWorker();
   const entityWorker = startEntitySetupWorker();
