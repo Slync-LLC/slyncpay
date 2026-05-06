@@ -15,6 +15,13 @@
       "when": 1776800000000,
       "tag": "0001_admins",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778025600000,
+      "tag": "0002_security",
+      "breakpoints": true
     }
   ]
 }

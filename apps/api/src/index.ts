@@ -46,7 +46,12 @@ app.get("/health", (c) => c.json({ status: "ok", version: "1.0.0" }));
 // ─── Error handling ───────────────────────────────────────────────────────────
 
 app.onError((err, c) => {
-  console.error(err);
+  // Log only message + name in production; stack only in dev. Never log auth headers/body.
+  if (process.env["NODE_ENV"] === "production") {
+    console.error(`[error] ${(err as Error).name}: ${(err as Error).message} on ${c.req.method} ${c.req.path}`);
+  } else {
+    console.error(err);
+  }
 
   if (err instanceof ApiError) {
     return c.json(

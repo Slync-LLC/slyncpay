@@ -21,8 +21,8 @@ export function AdminLayoutClient({ email, name, children }: Props) {
   const pathname = usePathname();
   const initial = (name || email).charAt(0).toUpperCase();
 
-  // Don't show chrome on the login page
-  if (pathname === "/admin/login") {
+  // Don't show chrome on auth pages
+  if (pathname === "/admin/login" || pathname === "/admin/two-factor") {
     return <>{children}</>;
   }
 

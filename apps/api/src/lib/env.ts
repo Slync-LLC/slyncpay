@@ -14,4 +14,6 @@ export const env = {
   API_SECRET: process.env["API_SECRET"] ?? "dev-secret",
   EIN_ENCRYPTION_KEY: required("EIN_ENCRYPTION_KEY"),
   JWT_SECRET: required("JWT_SECRET"),
+  RESEND_API_KEY: process.env["RESEND_API_KEY"] ?? "",
+  RESEND_FROM_EMAIL: process.env["RESEND_FROM_EMAIL"] ?? "SlyncPay <onboarding@resend.dev>",
 } as const;

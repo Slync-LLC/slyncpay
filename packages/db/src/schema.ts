@@ -101,6 +101,7 @@ export const tenants = pgTable(
 
     // Dashboard auth
     passwordHash: text("password_hash"),
+    twoFactorEnabled: boolean("two_factor_enabled").notNull().default(false),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -413,9 +414,54 @@ export const admins = pgTable("admins", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
+  twoFactorEnabled: boolean("two_factor_enabled").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
 });
+
+// ─── Sessions (JWT jti tracking for revocation) ───────────────────────────────
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey(),
+    subjectId: uuid("subject_id").notNull(),
+    subjectType: text("subject_type").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    impersonatorId: uuid("impersonator_id"),
+  },
+  (t) => ({
+    subjectIdx: index("idx_sessions_subject").on(t.subjectId, t.subjectType, t.revokedAt),
+    expiresIdx: index("idx_sessions_expires").on(t.expiresAt),
+  }),
+);
+
+// ─── Email OTP codes (2FA) ────────────────────────────────────────────────────
+
+export const emailOtpCodes = pgTable(
+  "email_otp_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    identifier: text("identifier").notNull(),
+    identifierType: text("identifier_type").notNull(),
+    purpose: text("purpose").notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    lookupIdx: index("idx_email_otp_lookup").on(t.identifier, t.identifierType, t.purpose, t.usedAt),
+    expiresIdx: index("idx_email_otp_expires").on(t.expiresAt),
+  }),
+);
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────
 
