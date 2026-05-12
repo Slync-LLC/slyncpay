@@ -4,11 +4,14 @@ import { z } from "zod";
 import { eq, and } from "@slyncpay/db";
 import { db, tenantEntities, provisioningJobs, tenants } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
-import { NotFoundError, ForbiddenError, PlanLimitError } from "../lib/errors.js";
+import { NotFoundError, PlanLimitError } from "../lib/errors.js";
 import { encrypt, maskEin } from "../lib/crypto.js";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
 import { getEntitySetupQueue } from "../workers/queues.js";
+import { toEntityDTO } from "../lib/dto.js";
+import { logAudit } from "../lib/audit.js";
+import { clientIp } from "../lib/rate-limit.js";
 
 export const entityRoutes = new Hono();
 entityRoutes.use("*", authMiddleware);
@@ -22,16 +25,12 @@ entityRoutes.get("/", async (c) => {
     .where(eq(tenantEntities.tenantId, tenantId));
 
   return c.json(
-    rows.map((e) => ({
-      id: e.id,
-      name: e.name,
-      einLast4: e.ein ? maskEin(e.ein) : null,
-      state: e.state,
-      status: e.status,
-      wingspanChildUserId: e.wingspanChildUserId,
-      createdAt: e.createdAt,
-      updatedAt: e.updatedAt,
-    })),
+    rows.map((e) =>
+      toEntityDTO({
+        ...e,
+        einLast4: e.ein ? maskEin(e.ein) : null,
+      }),
+    ),
   );
 });
 
@@ -98,13 +97,20 @@ entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
     { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
   );
 
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "entity.created",
+    resourceType: "entity",
+    resourceId: entity.id,
+    metadata: { name: entity.name, state: entity.state },
+    ipAddress: clientIp(c),
+  });
+
   return c.json(
     {
-      id: entity.id,
-      name: entity.name,
-      einLast4: maskEin(body.ein),
-      state: entity.state,
-      status: "pending",
+      ...toEntityDTO({ ...entity, einLast4: maskEin(body.ein) }),
       message: "Entity provisioning started. Poll /v1/entities/:id/provisioning-status.",
     },
     201,
@@ -123,16 +129,12 @@ entityRoutes.get("/:id", async (c) => {
 
   if (!entity) throw new NotFoundError("Entity");
 
-  return c.json({
-    id: entity.id,
-    name: entity.name,
-    einLast4: entity.ein ? maskEin(entity.ein) : null,
-    state: entity.state,
-    status: entity.status,
-    wingspanChildUserId: entity.wingspanChildUserId,
-    createdAt: entity.createdAt,
-    updatedAt: entity.updatedAt,
-  });
+  return c.json(
+    toEntityDTO({
+      ...entity,
+      einLast4: entity.ein ? maskEin(entity.ein) : null,
+    }),
+  );
 });
 
 entityRoutes.get("/:id/provisioning-status", async (c) => {

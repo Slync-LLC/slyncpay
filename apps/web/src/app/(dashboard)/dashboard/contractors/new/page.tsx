@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ChevronLeft } from "lucide-react";
+import { createContractor } from "../actions";
 
 const schema = z.object({
   externalId: z.string().min(1, "Required"),
@@ -31,15 +32,13 @@ export default function NewContractorPage() {
   async function onSubmit(values: FormValues) {
     setSubmitting(true);
     setError(null);
-    try {
-      // TODO: call POST /v1/contractors via apiRequest
-      await new Promise((r) => setTimeout(r, 800)); // placeholder
-      router.push("/dashboard/contractors");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
+    const result = await createContractor(values);
+    if (!result.ok) {
+      setError(result.error);
       setSubmitting(false);
+      return;
     }
+    router.push(`/dashboard/contractors/${result.contractorId}`);
   }
 
   return (
@@ -51,7 +50,7 @@ export default function NewContractorPage() {
 
       <h1 className="text-2xl font-bold mb-1">Add contractor</h1>
       <p className="text-sm text-muted-foreground mb-8">
-        The contractor will receive a W-9 and payout setup email from Wingspan.
+        We&apos;ll email the contractor a W-9 and payout setup link.
       </p>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">

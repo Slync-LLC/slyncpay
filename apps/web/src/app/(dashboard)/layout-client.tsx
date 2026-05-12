@@ -18,6 +18,8 @@ import {
   Webhook,
   LogOut,
   Shield,
+  BookOpen,
+  Activity,
 } from "lucide-react";
 
 const navItems = [
@@ -30,8 +32,10 @@ const navItems = [
 ];
 
 const developerItems = [
+  { href: "/dashboard/developer/docs", label: "API Docs", icon: BookOpen },
   { href: "/dashboard/developer/keys", label: "API Keys", icon: Key },
   { href: "/dashboard/developer/webhooks", label: "Webhooks", icon: Webhook },
+  { href: "/dashboard/developer/activity", label: "Activity Log", icon: Activity },
 ];
 
 interface Props {

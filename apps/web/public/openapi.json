@@ -1,0 +1,438 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "SlyncPay API",
+    "version": "1.0.0",
+    "description": "The SlyncPay API lets you onboard contractors, link them to your entities, create payables, and trigger disbursements. All endpoints are JSON over HTTPS and authenticated with a bearer API key.\n\n**Base URL:** `https://slyncpay-api.onrender.com`\n\n**Auth:** include `Authorization: Bearer spk_live_...` on every request.\n\nGet keys from the [Developer → API Keys](/dashboard/developer/keys) page."
+  },
+  "servers": [
+    { "url": "https://slyncpay-api.onrender.com", "description": "Production" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "API Key"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "validation_error" },
+          "message": { "type": "string", "example": "Field xyz is required" },
+          "statusCode": { "type": "integer", "example": 400 }
+        }
+      },
+      "Contractor": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "externalId": { "type": "string", "description": "Your internal identifier for this contractor." },
+          "email": { "type": "string", "format": "email" },
+          "firstName": { "type": ["string", "null"] },
+          "lastName": { "type": ["string", "null"] },
+          "onboardingStatus": {
+            "type": "string",
+            "enum": ["invited", "w9_pending", "payout_pending", "active", "inactive"]
+          },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Engagement": {
+        "type": "object",
+        "description": "Links a contractor to one of your entities. The `engagementId` is what you reference when creating payables.",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "engagementId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Pass this on payables (e.g. POST /v1/payables) to indicate which contractor-entity link to bill."
+          },
+          "contractorId": { "type": "string", "format": "uuid" },
+          "entityId": { "type": "string", "format": "uuid" },
+          "entityName": { "type": ["string", "null"] },
+          "status": { "type": "string", "enum": ["pending", "active", "inactive"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Entity": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "einLast4": { "type": ["string", "null"] },
+          "state": { "type": ["string", "null"] },
+          "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Payable": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "entityId": { "type": "string", "format": "uuid" },
+          "contractorId": { "type": "string", "format": "uuid" },
+          "engagementId": { "type": "string", "format": "uuid" },
+          "externalReferenceId": { "type": ["string", "null"], "description": "Your reference (e.g. invoice or shift ID)." },
+          "amountCents": { "type": "integer", "minimum": 1 },
+          "feeAmountCents": { "type": "integer", "description": "SlyncPay fee snapshot at creation." },
+          "status": { "type": "string", "enum": ["draft", "pending", "processing", "paid", "failed", "cancelled"] },
+          "dueDate": { "type": "string", "format": "date" },
+          "lineItems": { "type": "array", "items": { "$ref": "#/components/schemas/LineItem" } },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "LineItem": {
+        "type": "object",
+        "required": ["amountCents"],
+        "properties": {
+          "description": { "type": "string", "maxLength": 500 },
+          "amountCents": { "type": "integer", "minimum": 1 },
+          "quantity": { "type": "number", "minimum": 0 },
+          "unit": { "type": "string", "maxLength": 50 }
+        }
+      },
+      "Disbursement": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "entityId": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["processing", "completed", "failed", "partial"] },
+          "totalPayablesCount": { "type": "integer" },
+          "totalAmountCents": { "type": "integer" },
+          "totalFeesCents": { "type": "integer" },
+          "initiatedAt": { "type": "string", "format": "date-time" },
+          "completedAt": { "type": ["string", "null"], "format": "date-time" }
+        }
+      },
+      "ActivityEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "timestamp": { "type": "string", "format": "date-time" },
+          "actorType": { "type": "string", "enum": ["api_key", "system", "admin"] },
+          "actorId": { "type": "string" },
+          "actorLabel": { "type": "string", "description": "Human-readable actor (e.g. 'Default Key (…ab12)')." },
+          "action": { "type": "string", "example": "payable.pay_now" },
+          "resourceType": { "type": ["string", "null"] },
+          "resourceId": { "type": ["string", "null"] },
+          "metadata": { "type": "object", "additionalProperties": true },
+          "ipAddress": { "type": ["string", "null"] }
+        }
+      }
+    }
+  },
+  "tags": [
+    { "name": "Contractors", "description": "Add contractors and view their status." },
+    { "name": "Engagements", "description": "Link contractors to your entities." },
+    { "name": "Payables", "description": "Create one-off or scheduled payables." },
+    { "name": "Disbursements", "description": "Trigger batch payments to your contractors." },
+    { "name": "Entities", "description": "Your legal entities (one per EIN)." },
+    { "name": "Activity Log", "description": "Audit trail for every action on your account." }
+  ],
+  "paths": {
+    "/v1/contractors": {
+      "post": {
+        "tags": ["Contractors"],
+        "summary": "Create a contractor",
+        "description": "Onboards a new contractor under your tenant. The contractor receives an email with a W-9 and payout setup link.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["externalId", "email"],
+                "properties": {
+                  "externalId": { "type": "string", "description": "Your stable identifier (e.g. 'nurse-001'). Must be unique within your tenant." },
+                  "email": { "type": "string", "format": "email" },
+                  "firstName": { "type": "string" },
+                  "lastName": { "type": "string" },
+                  "metadata": { "type": "object", "additionalProperties": true }
+                }
+              },
+              "example": {
+                "externalId": "nurse-001",
+                "email": "jane@example.com",
+                "firstName": "Jane",
+                "lastName": "Doe"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/Contractor" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "onboardingUrl": { "type": ["string", "null"], "description": "One-time onboarding link to send to the contractor." }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": { "description": "External ID already used", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "503": { "description": "Tenant provisioning is not complete yet", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "get": {
+        "tags": ["Contractors"],
+        "summary": "List contractors",
+        "parameters": [
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["invited", "w9_pending", "payout_pending", "active", "inactive"] } },
+          { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Contractor" } },
+                    "pagination": {
+                      "type": "object",
+                      "properties": {
+                        "page": { "type": "integer" },
+                        "limit": { "type": "integer" },
+                        "total": { "type": "integer" },
+                        "hasMore": { "type": "boolean" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/contractors/{id}": {
+      "get": {
+        "tags": ["Contractors"],
+        "summary": "Get a contractor",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contractor" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/v1/contractors/{id}/engagements": {
+      "post": {
+        "tags": ["Engagements"],
+        "summary": "Attach a contractor to an entity",
+        "description": "Creates an engagement that lets this contractor be paid by the given entity. The returned `engagementId` is what you pass on payables. Idempotent: calling twice with the same (contractor, entity) returns the existing engagement.",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["entityId"], "properties": { "entityId": { "type": "string", "format": "uuid" } } },
+              "example": { "entityId": "9e1d…-…" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Engagement" } } } },
+          "200": { "description": "Already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Engagement" } } } }
+        }
+      },
+      "get": {
+        "tags": ["Engagements"],
+        "summary": "List a contractor's engagements",
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Engagement" } } } }
+          }
+        }
+      }
+    },
+    "/v1/contractors/{id}/pay-now": {
+      "post": {
+        "tags": ["Disbursements"],
+        "summary": "Pay a contractor immediately",
+        "description": "Creates a payable and immediately triggers a disbursement for the selected entity. Because disbursements are processed per-entity, if the entity has other pending payables they will be paid in the same batch. The first call returns a 409 with the conflict details; resubmit with `confirmIncludesOtherPending: true` to proceed.\n\n**Idempotency-Key header required.**",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["entityId", "amountCents"],
+                "properties": {
+                  "entityId": { "type": "string", "format": "uuid" },
+                  "amountCents": { "type": "integer", "minimum": 1 },
+                  "lineItems": { "type": "array", "items": { "$ref": "#/components/schemas/LineItem" } },
+                  "dueDate": { "type": "string", "format": "date", "description": "Defaults to today." },
+                  "externalReferenceId": { "type": "string" },
+                  "description": { "type": "string" },
+                  "confirmIncludesOtherPending": { "type": "boolean" }
+                }
+              },
+              "example": {
+                "entityId": "9e1d…-…",
+                "amountCents": 45000,
+                "description": "April shift bonus"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Paid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "payable": { "$ref": "#/components/schemas/Payable" },
+                    "disbursement": { "$ref": "#/components/schemas/Disbursement" },
+                    "includedPayables": { "type": "array", "items": { "$ref": "#/components/schemas/Payable" } }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Other pending payables would be included — resubmit with confirmIncludesOtherPending=true",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": { "type": "string", "example": "other_pending_payables" },
+                    "message": { "type": "string" },
+                    "pendingPayables": { "type": "array", "items": { "$ref": "#/components/schemas/Payable" } },
+                    "totalAmountCents": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/payables": {
+      "post": {
+        "tags": ["Payables"],
+        "summary": "Create a payable (queued for next disbursement)",
+        "description": "Creates a pending payable for the given contractor + entity. It will be paid the next time you trigger a disbursement for that entity.\n\n**Idempotency-Key header required.**",
+        "parameters": [{ "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["entityId", "contractorId", "amountCents", "dueDate", "lineItems"],
+                "properties": {
+                  "entityId": { "type": "string", "format": "uuid" },
+                  "contractorId": { "type": "string", "format": "uuid" },
+                  "externalReferenceId": { "type": "string" },
+                  "amountCents": { "type": "integer", "minimum": 1 },
+                  "dueDate": { "type": "string", "format": "date" },
+                  "lineItems": { "type": "array", "items": { "$ref": "#/components/schemas/LineItem" }, "minItems": 1 }
+                }
+              },
+              "example": {
+                "entityId": "9e1d…-…",
+                "contractorId": "7c3f…-…",
+                "externalReferenceId": "SHIFT-9021",
+                "amountCents": 45000,
+                "dueDate": "2026-05-15",
+                "lineItems": [{ "description": "Shift on 2026-05-12", "amountCents": 45000 }]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payable" } } } }
+        }
+      }
+    },
+    "/v1/disbursements": {
+      "post": {
+        "tags": ["Disbursements"],
+        "summary": "Trigger a batch disbursement",
+        "description": "Pays out all pending payables for the given entity in a single batch.\n\n**Idempotency-Key header required.**",
+        "parameters": [{ "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "type": "object", "required": ["entityId"], "properties": { "entityId": { "type": "string", "format": "uuid" } } },
+              "example": { "entityId": "9e1d…-…" }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Disbursement initiated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Disbursement" } } } }
+        }
+      }
+    },
+    "/v1/entities": {
+      "get": {
+        "tags": ["Entities"],
+        "summary": "List your entities",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Entity" } } } }
+          }
+        }
+      }
+    },
+    "/v1/tenant/activity-log": {
+      "get": {
+        "tags": ["Activity Log"],
+        "summary": "Query the audit log",
+        "description": "Returns events recorded for your tenant — logins, contractor/entity/payable/disbursement operations, admin actions. Newest first.",
+        "parameters": [
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO8601 lower bound (inclusive)." },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO8601 upper bound (inclusive)." },
+          { "name": "action", "in": "query", "schema": { "type": "string" }, "description": "Substring match against the action name (e.g. 'payable')." },
+          { "name": "actorId", "in": "query", "schema": { "type": "string" } },
+          { "name": "resourceType", "in": "query", "schema": { "type": "string" } },
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } },
+          { "name": "cursor", "in": "query", "schema": { "type": "string" }, "description": "Opaque pagination cursor returned by the previous call." }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "events": { "type": "array", "items": { "$ref": "#/components/schemas/ActivityEvent" } },
+                    "nextCursor": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

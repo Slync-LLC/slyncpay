@@ -7,6 +7,9 @@ import { db, disbursements, payables, tenantEntities, idempotencyKeys } from "@s
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient } from "../lib/wingspan.js";
+import { toDisbursementDTO, toPayableDTO } from "../lib/dto.js";
+import { logAudit } from "../lib/audit.js";
+import { clientIp } from "../lib/rate-limit.js";
 
 export const disbursementRoutes = new Hono();
 disbursementRoutes.use("*", authMiddleware);
@@ -120,16 +123,22 @@ disbursementRoutes.post(
       .set({ wingspanBulkBatchId: batchResult.bulkPayrollBatchId })
       .where(eq(disbursements.id, disbursement.id));
 
-    const responseBody = {
-      id: disbursement.id,
-      entityId: disbursement.entityId,
-      status: disbursement.status,
-      wingspanBulkBatchId: batchResult.bulkPayrollBatchId,
-      totalPayablesCount: disbursement.totalPayablesCount,
-      totalAmountCents: disbursement.totalAmountCents,
-      totalFeesCents: disbursement.totalFeesCents,
-      initiatedAt: disbursement.initiatedAt,
-    };
+    const responseBody = toDisbursementDTO(disbursement);
+
+    await logAudit({
+      tenantId,
+      actorType: "api_key",
+      actorId: c.var.auth.apiKeyId,
+      action: "disbursement.triggered",
+      resourceType: "disbursement",
+      resourceId: disbursement.id,
+      metadata: {
+        entityId,
+        totalPayablesCount: disbursement.totalPayablesCount,
+        totalAmountCents: disbursement.totalAmountCents,
+      },
+      ipAddress: clientIp(c),
+    });
 
     await db
       .update(idempotencyKeys)
@@ -173,17 +182,7 @@ disbursementRoutes.get("/", async (c) => {
   const total = countResult?.value ?? 0;
 
   return c.json({
-    data: rows.map((r) => ({
-      id: r.id,
-      entityId: r.entityId,
-      status: r.status,
-      wingspanBulkBatchId: r.wingspanBulkBatchId,
-      totalPayablesCount: r.totalPayablesCount,
-      totalAmountCents: r.totalAmountCents,
-      totalFeesCents: r.totalFeesCents,
-      initiatedAt: r.initiatedAt,
-      completedAt: r.completedAt,
-    })),
+    data: rows.map(toDisbursementDTO),
     pagination: { page, limit, total, hasMore: offset + rows.length < total },
   });
 });
@@ -201,27 +200,12 @@ disbursementRoutes.get("/:id", async (c) => {
   if (!disbursement) throw new NotFoundError("Disbursement");
 
   const relatedPayables = await db
-    .select({
-      id: payables.id,
-      contractorId: payables.contractorId,
-      amountCents: payables.amountCents,
-      status: payables.status,
-      externalReferenceId: payables.externalReferenceId,
-    })
+    .select()
     .from(payables)
     .where(eq(payables.disbursementId, id));
 
   return c.json({
-    id: disbursement.id,
-    entityId: disbursement.entityId,
-    status: disbursement.status,
-    wingspanBulkBatchId: disbursement.wingspanBulkBatchId,
-    totalPayablesCount: disbursement.totalPayablesCount,
-    totalAmountCents: disbursement.totalAmountCents,
-    totalFeesCents: disbursement.totalFeesCents,
-    initiatedAt: disbursement.initiatedAt,
-    completedAt: disbursement.completedAt,
-    failureReason: disbursement.failureReason,
-    payables: relatedPayables,
+    ...toDisbursementDTO(disbursement),
+    payables: relatedPayables.map(toPayableDTO),
   });
 });

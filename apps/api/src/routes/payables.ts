@@ -7,6 +7,9 @@ import { db, payables, engagements, tenantEntities, tenants, contractors, idempo
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient } from "../lib/wingspan.js";
+import { toPayableDTO } from "../lib/dto.js";
+import { logAudit } from "../lib/audit.js";
+import { clientIp } from "../lib/rate-limit.js";
 
 export const payableRoutes = new Hono();
 payableRoutes.use("*", authMiddleware);
@@ -145,21 +148,23 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
 
   if (!payable) throw new Error("Failed to save payable");
 
-  const responseBody = {
-    id: payable.id,
-    entityId: payable.entityId,
-    contractorId: payable.contractorId,
-    externalReferenceId: payable.externalReferenceId,
-    amountCents: payable.amountCents,
-    feeAmountCents: payable.feeAmountCents,
-    status: payable.status,
-    wingspanPayableId: payable.wingspanPayableId,
-    dueDate: payable.dueDate,
-    lineItems: payable.lineItems,
-    createdAt: payable.createdAt,
-  };
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "payable.created",
+    resourceType: "payable",
+    resourceId: payable.id,
+    metadata: {
+      contractorId: body.contractorId,
+      entityId: body.entityId,
+      amountCents: body.amountCents,
+    },
+    ipAddress: clientIp(c),
+  });
 
-  // Complete idempotency record
+  const responseBody = toPayableDTO(payable);
+
   await db
     .update(idempotencyKeys)
     .set({ responseStatus: 201, responseBody, completedAt: new Date() })
@@ -198,18 +203,7 @@ payableRoutes.get("/", async (c) => {
   const total = countResult?.value ?? 0;
 
   return c.json({
-    data: rows.map((r) => ({
-      id: r.id,
-      entityId: r.entityId,
-      contractorId: r.contractorId,
-      externalReferenceId: r.externalReferenceId,
-      amountCents: r.amountCents,
-      feeAmountCents: r.feeAmountCents,
-      status: r.status,
-      dueDate: r.dueDate,
-      createdAt: r.createdAt,
-      paidAt: r.paidAt,
-    })),
+    data: rows.map(toPayableDTO),
     pagination: { page, limit, total, hasMore: offset + rows.length < total },
   });
 });
@@ -226,23 +220,5 @@ payableRoutes.get("/:id", async (c) => {
 
   if (!payable) throw new NotFoundError("Payable");
 
-  return c.json({
-    id: payable.id,
-    entityId: payable.entityId,
-    contractorId: payable.contractorId,
-    engagementId: payable.engagementId,
-    externalReferenceId: payable.externalReferenceId,
-    amountCents: payable.amountCents,
-    feeBps: payable.feeBps,
-    perTxFeeCents: payable.perTxFeeCents,
-    feeAmountCents: payable.feeAmountCents,
-    status: payable.status,
-    wingspanPayableId: payable.wingspanPayableId,
-    lineItems: payable.lineItems,
-    dueDate: payable.dueDate,
-    disbursementId: payable.disbursementId,
-    createdAt: payable.createdAt,
-    updatedAt: payable.updatedAt,
-    paidAt: payable.paidAt,
-  });
+  return c.json(toPayableDTO(payable));
 });

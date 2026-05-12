@@ -6,13 +6,15 @@ import { apiKeys, tenants } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
 import { verifyApiKey, extractPrefix } from "../lib/api-keys.js";
 import { UnauthorizedError } from "../lib/errors.js";
+import { verifyTenantSession } from "../lib/sessions.js";
 
 const CACHE_TTL_SECONDS = 60;
 
 export interface AuthContext {
   tenantId: string;
-  apiKeyId: string;
+  apiKeyId: string; // For session-auth callers, this is "session:<jti>"
   environment: "live" | "test";
+  source: "api_key" | "session";
 }
 
 declare module "hono" {
@@ -27,10 +29,34 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
     throw new UnauthorizedError("Missing or invalid Authorization header");
   }
 
-  const rawKey = authHeader.slice(7);
-  if (!rawKey.startsWith("spk_")) {
-    throw new UnauthorizedError("Invalid API key format");
+  const rawToken = authHeader.slice(7);
+
+  // Tenant session JWT (dashboard) — used by Next.js server components
+  if (!rawToken.startsWith("spk_")) {
+    try {
+      const claims = await verifyTenantSession(rawToken);
+      const [tenant] = await db
+        .select({ status: tenants.status })
+        .from(tenants)
+        .where(eq(tenants.id, claims.tenantId))
+        .limit(1);
+      if (!tenant || tenant.status === "cancelled" || tenant.status === "suspended") {
+        throw new UnauthorizedError("Tenant account is not active");
+      }
+      c.set("auth", {
+        tenantId: claims.tenantId,
+        apiKeyId: `session:${claims.jti}`,
+        environment: "live",
+        source: "session",
+      });
+      await next();
+      return;
+    } catch {
+      throw new UnauthorizedError("Invalid session token");
+    }
   }
+
+  const rawKey = rawToken;
 
   // Fast cache check — avoids bcrypt on every request
   const cacheKey = `auth:${createHash("sha256").update(rawKey).digest("hex")}`;
@@ -81,6 +107,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
     tenantId: keyRow.tenantId,
     apiKeyId: keyRow.id,
     environment: keyRow.environment,
+    source: "api_key",
   };
 
   // Cache for 60s

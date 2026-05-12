@@ -1,14 +1,18 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and, desc, count } from "@slyncpay/db";
-import { db, contractors, engagements, tenantEntities, tenants } from "@slyncpay/db";
+import { eq, and, desc, count, inArray } from "@slyncpay/db";
+import { db, contractors, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys } from "@slyncpay/db";
+import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
-import { NotFoundError, ConflictError, PlanLimitError } from "../lib/errors.js";
+import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient } from "../lib/wingspan.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
+import { toContractorDTO, toEngagementDTO, toPayableDTO, toDisbursementDTO } from "../lib/dto.js";
+import { logAudit } from "../lib/audit.js";
+import { clientIp } from "../lib/rate-limit.js";
 
 export const contractorRoutes = new Hono();
 contractorRoutes.use("*", authMiddleware);
@@ -106,7 +110,10 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
 
   if (!contractor) throw new Error("Failed to create contractor");
 
-  // Get a session token for immediate onboarding link
+  // Get a session token for an immediate onboarding link. Stays opaque to the
+  // tenant — they get a URL string, no underlying-provider hostname leaked
+  // in the UI copy (the link itself still resolves to the provider domain
+  // until the proxy route ships; see plan follow-ups).
   let onboardingUrl: string | null = null;
   try {
     const session = await getWingspanClient().getSessionToken(wingspanPayee.user.userId);
@@ -119,17 +126,21 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     // Non-fatal — tenant can fetch a fresh link via GET /contractors/:id/onboarding-link
   }
 
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "contractor.created",
+    resourceType: "contractor",
+    resourceId: contractor.id,
+    metadata: { email: contractor.email, externalId: contractor.externalId },
+    ipAddress: clientIp(c),
+  });
+
   return c.json(
     {
-      id: contractor.id,
-      externalId: contractor.externalId,
-      email: contractor.email,
-      firstName: contractor.firstName,
-      lastName: contractor.lastName,
-      onboardingStatus: contractor.onboardingStatus,
-      wingspanUserId: contractor.wingspanUserId,
+      ...toContractorDTO(contractor),
       onboardingUrl,
-      createdAt: contractor.createdAt,
     },
     201,
   );
@@ -163,15 +174,7 @@ contractorRoutes.get("/", async (c) => {
   const total = countResult?.value ?? 0;
 
   return c.json({
-    data: rows.map((r) => ({
-      id: r.id,
-      externalId: r.externalId,
-      email: r.email,
-      firstName: r.firstName,
-      lastName: r.lastName,
-      onboardingStatus: r.onboardingStatus,
-      createdAt: r.createdAt,
-    })),
+    data: rows.map(toContractorDTO),
     pagination: { page, limit, total, hasMore: offset + rows.length < total },
   });
 });
@@ -188,18 +191,7 @@ contractorRoutes.get("/:id", async (c) => {
 
   if (!contractor) throw new NotFoundError("Contractor");
 
-  return c.json({
-    id: contractor.id,
-    externalId: contractor.externalId,
-    email: contractor.email,
-    firstName: contractor.firstName,
-    lastName: contractor.lastName,
-    onboardingStatus: contractor.onboardingStatus,
-    wingspanUserId: contractor.wingspanUserId,
-    metadata: contractor.metadata,
-    createdAt: contractor.createdAt,
-    updatedAt: contractor.updatedAt,
-  });
+  return c.json(toContractorDTO(contractor));
 });
 
 contractorRoutes.get("/:id/onboarding-link", async (c) => {
@@ -270,14 +262,7 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     .limit(1);
 
   if (existingEngagement) {
-    return c.json({
-      id: existingEngagement.id,
-      contractorId,
-      entityId,
-      wingspanPayerPayeeEngagementId: existingEngagement.wingspanPayerPayeeEngagementId,
-      status: existingEngagement.status,
-      createdAt: existingEngagement.createdAt,
-    });
+    return c.json(toEngagementDTO(existingEngagement, { entityName: entity.name }));
   }
 
   // Call Wingspan: POST /payments/payee from entity context
@@ -320,17 +305,18 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
 
   if (!engagement) throw new Error("Failed to save engagement");
 
-  return c.json(
-    {
-      id: engagement.id,
-      contractorId,
-      entityId,
-      wingspanPayerPayeeEngagementId: engagement.wingspanPayerPayeeEngagementId,
-      status: engagement.status,
-      createdAt: engagement.createdAt,
-    },
-    201,
-  );
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "contractor.engagement.created",
+    resourceType: "engagement",
+    resourceId: engagement.id,
+    metadata: { contractorId, entityId, entityName: entity.name },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json(toEngagementDTO(engagement, { entityName: entity.name }), 201);
 });
 
 contractorRoutes.get("/:id/engagements", async (c) => {
@@ -347,6 +333,7 @@ contractorRoutes.get("/:id/engagements", async (c) => {
   const rows = await db
     .select({
       id: engagements.id,
+      contractorId: engagements.contractorId,
       entityId: engagements.entityId,
       entityName: tenantEntities.name,
       status: engagements.status,
@@ -356,5 +343,283 @@ contractorRoutes.get("/:id/engagements", async (c) => {
     .innerJoin(tenantEntities, eq(engagements.entityId, tenantEntities.id))
     .where(eq(engagements.contractorId, contractorId));
 
-  return c.json(rows);
+  return c.json(rows.map((r) => toEngagementDTO(r, { entityName: r.entityName })));
 });
+
+// ─── Pay now: create payable + immediately trigger entity-wide disbursement ───
+//
+// Per the underlying processor's API, a "single payable pay" endpoint does not
+// exist. The pay-approved sweep operates on the entity's whole pending pool.
+// This endpoint composes both calls server-side and surfaces a 409 if other
+// pending payables would be unintentionally included, so the caller can
+// confirm explicitly.
+
+const payNowLineItemSchema = z.object({
+  description: z.string().max(500).optional(),
+  amountCents: z.number().int().positive(),
+  quantity: z.number().positive().optional(),
+  unit: z.string().max(50).optional(),
+});
+
+const payNowSchema = z.object({
+  entityId: z.string().uuid(),
+  amountCents: z.number().int().positive(),
+  lineItems: z.array(payNowLineItemSchema).min(1).optional(),
+  dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  externalReferenceId: z.string().max(200).optional(),
+  description: z.string().max(500).optional(),
+  confirmIncludesOtherPending: z.boolean().optional(),
+});
+
+function calculateFee(amountCents: number, feeBps: number, perTxFeeCents: number): number {
+  return Math.round(amountCents * (feeBps / 10000)) + perTxFeeCents;
+}
+
+contractorRoutes.post(
+  "/:id/pay-now",
+  zValidator("json", payNowSchema),
+  async (c) => {
+    const { tenantId, apiKeyId } = c.var.auth;
+    const { id: contractorId } = c.req.param();
+    const body = c.req.valid("json");
+    const idempotencyKey = c.req.header("Idempotency-Key");
+
+    if (!idempotencyKey) {
+      throw new ValidationError("Idempotency-Key header is required for pay-now");
+    }
+
+    // Idempotency replay check
+    const requestHash = createHash("sha256")
+      .update(JSON.stringify({ contractorId, ...body }))
+      .digest("hex");
+    const [existingKey] = await db
+      .select()
+      .from(idempotencyKeys)
+      .where(and(eq(idempotencyKeys.tenantId, tenantId), eq(idempotencyKeys.idempotencyKey, idempotencyKey)))
+      .limit(1);
+    if (existingKey?.completedAt && existingKey.responseBody) {
+      return c.json(existingKey.responseBody as Record<string, unknown>, (existingKey.responseStatus ?? 200) as 200);
+    }
+    await db
+      .insert(idempotencyKeys)
+      .values({
+        tenantId,
+        idempotencyKey,
+        requestPath: `/v1/contractors/${contractorId}/pay-now`,
+        requestHash,
+        lockedAt: new Date(),
+      })
+      .onConflictDoNothing();
+
+    // Validate contractor + entity ownership and engagement
+    const [contractor] = await db
+      .select()
+      .from(contractors)
+      .where(and(eq(contractors.id, contractorId), eq(contractors.tenantId, tenantId)))
+      .limit(1);
+    if (!contractor) throw new NotFoundError("Contractor");
+
+    const [entity] = await db
+      .select()
+      .from(tenantEntities)
+      .where(and(eq(tenantEntities.id, body.entityId), eq(tenantEntities.tenantId, tenantId)))
+      .limit(1);
+    if (!entity) throw new NotFoundError("Entity");
+    if (!entity.wingspanChildUserId) {
+      throw new ValidationError("Entity is not yet provisioned");
+    }
+
+    const [engagement] = await db
+      .select()
+      .from(engagements)
+      .where(
+        and(
+          eq(engagements.tenantId, tenantId),
+          eq(engagements.contractorId, contractorId),
+          eq(engagements.entityId, body.entityId),
+        ),
+      )
+      .limit(1);
+    if (!engagement) {
+      throw new ValidationError(
+        "No engagement found for this contractor and entity. Attach the contractor to the entity first.",
+      );
+    }
+
+    // Inspect pending pool for this entity
+    const existingPending = await db
+      .select({
+        id: payables.id,
+        amountCents: payables.amountCents,
+        feeAmountCents: payables.feeAmountCents,
+        contractorId: payables.contractorId,
+        externalReferenceId: payables.externalReferenceId,
+        engagementId: payables.engagementId,
+        entityId: payables.entityId,
+        status: payables.status,
+        dueDate: payables.dueDate,
+        createdAt: payables.createdAt,
+      })
+      .from(payables)
+      .where(
+        and(
+          eq(payables.tenantId, tenantId),
+          eq(payables.entityId, body.entityId),
+          eq(payables.status, "pending"),
+        ),
+      );
+
+    if (existingPending.length > 0 && !body.confirmIncludesOtherPending) {
+      const totalOthers = existingPending.reduce((sum, p) => sum + p.amountCents, 0);
+      return c.json(
+        {
+          error: "other_pending_payables",
+          message:
+            "This entity has other pending payables that would be paid in the same batch. " +
+            "Resubmit with confirmIncludesOtherPending=true to proceed.",
+          pendingPayables: existingPending.map((p) => toPayableDTO(p)),
+          totalAmountCents: totalOthers,
+        },
+        409,
+      );
+    }
+
+    // Resolve fees
+    const [tenantRow] = await db
+      .select({ disbursementFeeBps: tenants.disbursementFeeBps, perTxFeeCents: tenants.perTxFeeCents })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (!tenantRow) throw new NotFoundError("Tenant");
+
+    const feeAmountCents = calculateFee(body.amountCents, tenantRow.disbursementFeeBps, tenantRow.perTxFeeCents);
+    const today = new Date().toISOString().slice(0, 10);
+    const dueDate = body.dueDate ?? today;
+    const lineItems =
+      body.lineItems ??
+      [
+        {
+          description: body.description ?? `Payment to ${contractor.firstName ?? ""} ${contractor.lastName ?? ""}`.trim(),
+          amountCents: body.amountCents,
+        },
+      ];
+
+    // 1. Create payable in the payment processor
+    const wingspan = getWingspanClient().withChild(entity.wingspanChildUserId);
+    const processorPayable = await wingspan.createPayable({
+      collaboratorId: engagement.wingspanPayerPayeeEngagementId,
+      dueDate,
+      ...(body.externalReferenceId ? { referenceId: body.externalReferenceId } : {}),
+      lineItems: lineItems.map((li) => ({
+        totalCost: li.amountCents / 100,
+        ...(li.description ? { description: li.description } : {}),
+        ...(li.quantity ? { quantity: li.quantity, costPerUnit: li.amountCents / 100 / li.quantity } : {}),
+        ...(li.unit ? { unit: li.unit } : {}),
+      })),
+    });
+
+    const [payable] = await db
+      .insert(payables)
+      .values({
+        tenantId,
+        entityId: body.entityId,
+        contractorId,
+        engagementId: engagement.id,
+        externalReferenceId: body.externalReferenceId ?? null,
+        amountCents: body.amountCents,
+        dueDate,
+        feeBps: tenantRow.disbursementFeeBps,
+        perTxFeeCents: tenantRow.perTxFeeCents,
+        feeAmountCents,
+        status: "pending",
+        wingspanPayableId: processorPayable.payableId,
+        lineItems,
+        metadata: {},
+      })
+      .returning();
+
+    if (!payable) throw new Error("Failed to save payable");
+
+    // 2. Sweep all pending payables for the entity (which now includes the new one)
+    const sweepIds = [...existingPending.map((p) => p.id), payable.id];
+    const totalAmountCents = existingPending.reduce((s, p) => s + p.amountCents, 0) + body.amountCents;
+    const totalFeesCents =
+      existingPending.reduce((s, p) => s + p.feeAmountCents, 0) + feeAmountCents;
+
+    const [disbursement] = await db
+      .insert(disbursements)
+      .values({
+        tenantId,
+        entityId: body.entityId,
+        status: "processing",
+        totalPayablesCount: sweepIds.length,
+        totalAmountCents,
+        totalFeesCents,
+      })
+      .returning();
+    if (!disbursement) throw new Error("Failed to create disbursement");
+
+    await db
+      .update(payables)
+      .set({ disbursementId: disbursement.id, status: "processing", updatedAt: new Date() })
+      .where(
+        and(
+          eq(payables.tenantId, tenantId),
+          eq(payables.entityId, body.entityId),
+          inArray(payables.id, sweepIds),
+        ),
+      );
+
+    const batchResult = await wingspan.payApproved();
+    await db
+      .update(disbursements)
+      .set({ wingspanBulkBatchId: batchResult.bulkPayrollBatchId })
+      .where(eq(disbursements.id, disbursement.id));
+
+    // Audit log for both events
+    await logAudit({
+      tenantId,
+      actorType: "api_key",
+      actorId: apiKeyId,
+      action: "payable.pay_now",
+      resourceType: "payable",
+      resourceId: payable.id,
+      metadata: {
+        contractorId,
+        entityId: body.entityId,
+        amountCents: body.amountCents,
+        includedOtherPending: existingPending.length,
+        disbursementId: disbursement.id,
+      },
+      ipAddress: clientIp(c),
+    });
+    await logAudit({
+      tenantId,
+      actorType: "api_key",
+      actorId: apiKeyId,
+      action: "disbursement.triggered",
+      resourceType: "disbursement",
+      resourceId: disbursement.id,
+      metadata: { entityId: body.entityId, totalPayablesCount: sweepIds.length, totalAmountCents },
+      ipAddress: clientIp(c),
+    });
+
+    const responseBody = {
+      payable: toPayableDTO(payable),
+      disbursement: toDisbursementDTO({
+        ...disbursement,
+        totalAmountCents,
+        totalFeesCents,
+      }),
+      includedPayables: [...existingPending, payable].map((p) => toPayableDTO(p)),
+    };
+
+    await db
+      .update(idempotencyKeys)
+      .set({ responseStatus: 200, responseBody, completedAt: new Date() })
+      .where(and(eq(idempotencyKeys.tenantId, tenantId), eq(idempotencyKeys.idempotencyKey, idempotencyKey)));
+
+    return c.json(responseBody, 200);
+  },
+);
+
