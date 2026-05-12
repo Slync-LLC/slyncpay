@@ -56,6 +56,8 @@ adminRoutes.post(
     const valid = admin?.passwordHash ? await bcrypt.compare(password, admin.passwordHash) : false;
 
     if (!valid || !admin) {
+      // TEMP DIAGNOSTIC — remove after debugging
+      console.log(`[admin.login.debug] email=${JSON.stringify(email)} pwLen=${password.length} pwStart=${password.charCodeAt(0)} pwEnd=${password.charCodeAt(password.length - 1)} adminFound=${!!admin}`);
       await recordFailedLogin(`admin:${email}`);
       await logAudit({ actorType: "system", actorId: email, action: "admin.login.failure", ipAddress: ip });
       return c.json({ error: "invalid_credentials", message: "Invalid email or password" }, 401);
