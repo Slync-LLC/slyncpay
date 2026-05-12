@@ -2,11 +2,14 @@ const path = require("path");
 
 const API_URL = process.env.API_URL || "https://slyncpay-api.onrender.com";
 
-// Strict CSP. `unsafe-inline` on style is required by Tailwind's runtime style
-// injection; we keep script-src strict (no inline scripts).
+// CSP. Next.js App Router with static prerendering injects inline bootstrap
+// scripts (`self.__next_f.push(...)`) that we can't easily nonce without
+// making every page dynamic. `'unsafe-inline'` on script is the standard
+// trade-off for App Router + standalone output. style 'unsafe-inline' is
+// required by Tailwind runtime injection.
 const csp = [
   "default-src 'self'",
-  "script-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: https:",
   "font-src 'self' data:",
