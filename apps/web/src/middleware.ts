@@ -9,6 +9,7 @@ const PUBLIC_PATHS = [
   "/sign-in",
   "/sign-up",
   "/two-factor",
+  "/gate",
   "/admin/login",
   "/admin/two-factor",
 ];
