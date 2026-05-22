@@ -37,11 +37,6 @@ const MOCK_ENTITIES = [
   { id: "e2", label: "NurseIO CA Inc" },
 ];
 
-// 0.8% disbursement fee + $0.25 per-tx (Starter plan)
-function calcFee(amountCents: number): number {
-  return Math.round(amountCents * 0.008) + 25;
-}
-
 export default function NewPayablePage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -211,16 +206,8 @@ export default function NewPayablePage() {
 
           {/* Total */}
           <div className="mt-4 pt-4 border-t border-border">
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span className="font-medium">{formatCurrency(totalCents)}</span>
-            </div>
-            <div className="flex justify-between text-sm mt-1">
-              <span className="text-muted-foreground">SlyncPay fee (0.8% + $0.25)</span>
-              <span className="text-muted-foreground">{formatCurrency(calcFee(totalCents))}</span>
-            </div>
-            <div className="flex justify-between text-sm font-semibold mt-2 pt-2 border-t border-border">
-              <span>Contractor receives</span>
+            <div className="flex justify-between text-sm font-semibold">
+              <span>Total</span>
               <span>{formatCurrency(totalCents)}</span>
             </div>
           </div>

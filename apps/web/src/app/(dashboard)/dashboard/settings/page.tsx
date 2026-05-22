@@ -80,7 +80,7 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between">
             <div>
               <div className="font-medium">Starter</div>
-              <div className="text-sm text-muted-foreground mt-0.5">$149/mo · 0.8% disbursement fee · 1 entity · 50 contractors</div>
+              <div className="text-sm text-muted-foreground mt-0.5">$149/mo · 1 entity · 50 contractors</div>
             </div>
             <a
               href="/pricing"

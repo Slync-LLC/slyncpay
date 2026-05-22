@@ -78,7 +78,6 @@
           "engagementId": { "type": "string", "format": "uuid" },
           "externalReferenceId": { "type": ["string", "null"], "description": "Your reference (e.g. invoice or shift ID)." },
           "amountCents": { "type": "integer", "minimum": 1 },
-          "feeAmountCents": { "type": "integer", "description": "SlyncPay fee snapshot at creation." },
           "status": { "type": "string", "enum": ["draft", "pending", "processing", "paid", "failed", "cancelled"] },
           "dueDate": { "type": "string", "format": "date" },
           "lineItems": { "type": "array", "items": { "$ref": "#/components/schemas/LineItem" } },
@@ -103,7 +102,6 @@
           "status": { "type": "string", "enum": ["processing", "completed", "failed", "partial"] },
           "totalPayablesCount": { "type": "integer" },
           "totalAmountCents": { "type": "integer" },
-          "totalFeesCents": { "type": "integer" },
           "initiatedAt": { "type": "string", "format": "date-time" },
           "completedAt": { "type": ["string", "null"], "format": "date-time" }
         }

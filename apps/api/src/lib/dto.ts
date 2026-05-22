@@ -56,9 +56,6 @@ export interface PayableDTO {
   engagementId?: string;
   externalReferenceId: string | null;
   amountCents: number;
-  feeBps?: number;
-  perTxFeeCents?: number;
-  feeAmountCents: number;
   status: string;
   lineItems?: unknown;
   dueDate: string;
@@ -74,7 +71,6 @@ export interface DisbursementDTO {
   status: string;
   totalPayablesCount: number;
   totalAmountCents: number;
-  totalFeesCents: number;
   initiatedAt: Date | string;
   completedAt?: Date | string | null;
   failureReason?: string | null;
@@ -132,9 +128,6 @@ export function toPayableDTO(r: AnyRow): PayableDTO {
     ...(r["engagementId"] !== undefined ? { engagementId: r["engagementId"] as string } : {}),
     externalReferenceId: (r["externalReferenceId"] as string | null) ?? null,
     amountCents: r["amountCents"] as number,
-    ...(r["feeBps"] !== undefined ? { feeBps: r["feeBps"] as number } : {}),
-    ...(r["perTxFeeCents"] !== undefined ? { perTxFeeCents: r["perTxFeeCents"] as number } : {}),
-    feeAmountCents: r["feeAmountCents"] as number,
     status: r["status"] as string,
     ...(r["lineItems"] !== undefined ? { lineItems: r["lineItems"] } : {}),
     dueDate: r["dueDate"] as string,
@@ -152,7 +145,6 @@ export function toDisbursementDTO(r: AnyRow): DisbursementDTO {
     status: r["status"] as string,
     totalPayablesCount: r["totalPayablesCount"] as number,
     totalAmountCents: Number(r["totalAmountCents"] ?? 0),
-    totalFeesCents: Number(r["totalFeesCents"] ?? 0),
     initiatedAt: r["initiatedAt"] as Date | string,
     ...(r["completedAt"] !== undefined ? { completedAt: r["completedAt"] as Date | string | null } : {}),
     ...(r["failureReason"] !== undefined ? { failureReason: (r["failureReason"] as string | null) ?? null } : {}),

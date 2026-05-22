@@ -87,7 +87,7 @@ export default function DisbursementDetailPage() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-border p-4">
           <div className="text-xs text-muted-foreground mb-1">Payables</div>
           <div className="text-xl font-bold">{d.payablesCount}</div>
@@ -95,10 +95,6 @@ export default function DisbursementDetailPage() {
         <div className="bg-white rounded-xl border border-border p-4">
           <div className="text-xs text-muted-foreground mb-1">Total paid</div>
           <div className="text-xl font-bold">{formatCurrency(d.totalAmountCents)}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <div className="text-xs text-muted-foreground mb-1">SlyncPay fees</div>
-          <div className="text-xl font-bold">{formatCurrency(d.totalFeesCents)}</div>
         </div>
       </div>
 

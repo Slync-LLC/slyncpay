@@ -159,7 +159,6 @@ export default function PayablesPage() {
                   <td className="px-5 py-3.5 text-sm text-muted-foreground">{p.dueDate}</td>
                   <td className="px-5 py-3.5 text-right">
                     <div className="text-sm font-medium">{formatCurrency(p.amountCents)}</div>
-                    <div className="text-xs text-muted-foreground">+{formatCurrency(p.feeAmountCents)} fee</div>
                   </td>
                 </tr>
               ))

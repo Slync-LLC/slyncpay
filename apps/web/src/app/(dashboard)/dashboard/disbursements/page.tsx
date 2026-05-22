@@ -168,7 +168,6 @@ export default function DisbursementsPage() {
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Payables</th>
               <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Total</th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Fees</th>
               <th className="px-5 py-3" />
             </tr>
           </thead>
@@ -186,7 +185,6 @@ export default function DisbursementsPage() {
                 </td>
                 <td className="px-5 py-3.5 text-sm">{d.payablesCount}</td>
                 <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(d.totalAmountCents)}</td>
-                <td className="px-5 py-3.5 text-right text-xs text-muted-foreground">{formatCurrency(d.totalFeesCents)}</td>
                 <td className="px-5 py-3.5 text-right">
                   <Link
                     href={`/dashboard/disbursements/${d.id}`}
