@@ -28,6 +28,9 @@ import { rateLimit, recordFailedLogin, isLockedOut, clearFailedLogins, clientIp 
 import { logAudit } from "../lib/audit.js";
 import { adminAuthMiddleware } from "../middleware/admin-auth.js";
 import { ApiError } from "../lib/errors.js";
+import { provisioningJobs } from "@slyncpay/db";
+import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
+import { hasSandboxConfig } from "../lib/wingspan.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -394,6 +397,63 @@ adminRoutes.post("/tenants/:id/impersonate", async (c) => {
   });
 
   return c.json({ token, tenantId: tenant.id, tenantName: tenant.name });
+});
+
+// Force-rerun tenant provisioning. Useful when the original job failed (e.g.
+// because Wingspan creds were unset at signup) and the tenant is stuck.
+adminRoutes.post("/tenants/:id/reprovision", async (c) => {
+  const { id } = c.req.param();
+  const admin = c.get("admin");
+
+  const [tenant] = await db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
+  if (!tenant) throw new ApiError(404, "not_found", "Tenant not found");
+
+  // Queue live tenant setup if the live payee bucket is missing
+  if (!tenant.wingspanPayeeBucketUserId) {
+    const [job] = await db
+      .insert(provisioningJobs)
+      .values({ tenantId: tenant.id, jobType: "tenant_setup", status: "pending" })
+      .returning();
+    if (!job) throw new Error("Failed to create provisioning job");
+
+    await getTenantSetupQueue().add(
+      "tenant-setup",
+      { tenantId: tenant.id, provisioningJobId: job.id },
+      { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+    );
+  }
+
+  // Queue sandbox tenant setup if sandbox is configured and bucket is missing
+  if (hasSandboxConfig() && !tenant.wingspanPayeeBucketUserIdSandbox) {
+    await getTenantSandboxSetupQueue().add(
+      "tenant-sandbox-setup",
+      { tenantId: tenant.id },
+      { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+    );
+  }
+
+  await logAudit({
+    tenantId: tenant.id,
+    actorType: "admin",
+    actorId: admin.adminId,
+    action: "admin.tenant.reprovision",
+    resourceType: "tenant",
+    resourceId: tenant.id,
+    metadata: {
+      adminEmail: admin.email,
+      hadLive: !!tenant.wingspanPayeeBucketUserId,
+      hadSandbox: !!tenant.wingspanPayeeBucketUserIdSandbox,
+    },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({
+    ok: true,
+    queued: {
+      live: !tenant.wingspanPayeeBucketUserId,
+      sandbox: hasSandboxConfig() && !tenant.wingspanPayeeBucketUserIdSandbox,
+    },
+  });
 });
 
 adminRoutes.patch(
