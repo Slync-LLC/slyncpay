@@ -1,29 +1,31 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ChevronLeft, RefreshCw } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
+import { apiServerGet, ServerApiError } from "@/lib/api-server";
 
-interface PayableResult {
+interface PayableInDisbursement {
   id: string;
-  externalRef: string;
-  contractor: string;
+  contractorId: string;
   amountCents: number;
-  status: "processing" | "paid" | "failed";
+  status: string;
+  externalReferenceId: string | null;
 }
 
 interface DisbursementDetail {
   id: string;
-  entity: string;
-  status: "processing" | "completed" | "failed" | "partial";
-  payablesCount: number;
+  entityId: string;
+  status: string;
+  totalPayablesCount: number;
   totalAmountCents: number;
-  totalFeesCents: number;
   initiatedAt: string;
-  completedAt?: string;
-  payables: PayableResult[];
+  completedAt: string | null;
+  payables: PayableInDisbursement[];
+}
+
+interface Entity {
+  id: string;
+  name: string;
 }
 
 const STATUS_STYLES: Record<string, string> = {
@@ -32,38 +34,26 @@ const STATUS_STYLES: Record<string, string> = {
   failed: "bg-red-50 text-red-700",
   partial: "bg-orange-50 text-orange-700",
   paid: "bg-green-50 text-green-700",
+  pending: "bg-blue-50 text-blue-700",
 };
 
-const MOCK_DETAIL: DisbursementDetail = {
-  id: "d1",
-  entity: "NurseIO AZ LLC",
-  status: "completed",
-  payablesCount: 14,
-  totalAmountCents: 24_500_00,
-  totalFeesCents: 2_210,
-  initiatedAt: "2026-04-15T10:00:00Z",
-  completedAt: "2026-04-15T10:03:22Z",
-  payables: [
-    { id: "p1", externalRef: "SHIFT-9021", contractor: "Jane Smith", amountCents: 450_00, status: "paid" },
-    { id: "p2", externalRef: "SHIFT-9015", contractor: "Maria Garcia", amountCents: 390_00, status: "paid" },
-    { id: "p3", externalRef: "SHIFT-9014", contractor: "James Wilson", amountCents: 620_00, status: "paid" },
-    { id: "p4", externalRef: "SHIFT-9013", contractor: "Sarah Jones", amountCents: 510_00, status: "paid" },
-    { id: "p5", externalRef: "SHIFT-9012", contractor: "Jane Smith", amountCents: 480_00, status: "paid" },
-  ],
-};
+async function safeGet<T>(path: string): Promise<T | null> {
+  try {
+    return await apiServerGet<T>(path);
+  } catch (err) {
+    if (err instanceof ServerApiError) return null;
+    throw err;
+  }
+}
 
-export default function DisbursementDetailPage() {
-  const { id } = useParams();
-  const d = MOCK_DETAIL;
-  const isProcessing = d.status === "processing";
+export default async function DisbursementDetailPage({ params }: { params: { id: string } }) {
+  const detail = await safeGet<DisbursementDetail>(`/v1/disbursements/${params.id}`);
+  if (!detail) notFound();
 
-  // Simulated polling for in-progress disbursements
-  const [pollingCount, setPollingCount] = useState(0);
-  useEffect(() => {
-    if (!isProcessing) return;
-    const interval = setInterval(() => setPollingCount((n) => n + 1), 3000);
-    return () => clearInterval(interval);
-  }, [isProcessing]);
+  const entities = (await safeGet<Entity[]>("/v1/entities")) ?? [];
+  const entityName = entities.find((e) => e.id === detail.entityId)?.name ?? "Entity";
+
+  const isProcessing = detail.status === "processing";
 
   return (
     <div className="p-8 max-w-4xl">
@@ -72,66 +62,67 @@ export default function DisbursementDetailPage() {
         Disbursements
       </Link>
 
-      {/* Header */}
       <div className="flex items-start justify-between mb-6">
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <h1 className="text-2xl font-bold">Batch #{d.id}</h1>
-            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded text-sm font-medium ${STATUS_STYLES[d.status]}`}>
-              {isProcessing && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
-              {d.status}
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-2xl font-bold">Disbursement</h1>
+            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_STYLES[detail.status] ?? ""}`}>
+              {detail.status}
             </span>
           </div>
-          <p className="text-sm text-muted-foreground">{d.entity} · Initiated {new Date(d.initiatedAt).toLocaleString()}</p>
+          <p className="text-sm text-muted-foreground">
+            {entityName} · Initiated {new Date(detail.initiatedAt).toLocaleString()}
+          </p>
         </div>
       </div>
 
-      {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-border p-4">
           <div className="text-xs text-muted-foreground mb-1">Payables</div>
-          <div className="text-xl font-bold">{d.payablesCount}</div>
+          <div className="text-xl font-bold">{detail.totalPayablesCount}</div>
         </div>
         <div className="bg-white rounded-xl border border-border p-4">
           <div className="text-xs text-muted-foreground mb-1">Total paid</div>
-          <div className="text-xl font-bold">{formatCurrency(d.totalAmountCents)}</div>
+          <div className="text-xl font-bold">{formatCurrency(detail.totalAmountCents)}</div>
         </div>
       </div>
 
       {isProcessing && (
         <div className="mb-5 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 flex items-center gap-2 text-sm text-blue-800">
           <RefreshCw className="h-4 w-4 animate-spin flex-shrink-0" />
-          Processing — checking payment status every 3 seconds…
+          Processing — refresh the page to check status.
         </div>
       )}
 
-      {/* Per-payment breakdown */}
       <div className="bg-white rounded-xl border border-border overflow-hidden">
-        <div className="px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-semibold">Per-payment breakdown</h2>
-        </div>
         <table className="w-full">
           <thead>
             <tr className="border-b border-border bg-muted/30">
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Reference</th>
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Contractor</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
               <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {d.payables.map((p) => (
-              <tr key={p.id}>
-                <td className="px-5 py-3.5 font-mono text-xs">{p.externalRef}</td>
-                <td className="px-5 py-3.5 text-sm">{p.contractor}</td>
-                <td className="px-5 py-3.5">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[p.status]}`}>
-                    {p.status}
-                  </span>
+            {detail.payables.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="px-5 py-8 text-center text-sm text-muted-foreground">
+                  No payables linked.
                 </td>
-                <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(p.amountCents)}</td>
               </tr>
-            ))}
+            ) : (
+              detail.payables.map((p) => (
+                <tr key={p.id}>
+                  <td className="px-5 py-3.5 font-mono text-xs">{p.externalReferenceId ?? p.id.slice(0, 8)}</td>
+                  <td className="px-5 py-3.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_STYLES[p.status] ?? ""}`}>
+                      {p.status}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(p.amountCents)}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </div>

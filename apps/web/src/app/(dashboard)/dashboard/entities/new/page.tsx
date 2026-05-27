@@ -7,6 +7,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { ChevronLeft } from "lucide-react";
+import { createEntity } from "../actions";
 
 const US_STATES = [
   "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA",
@@ -38,15 +39,13 @@ export default function NewEntityPage() {
   async function onSubmit(values: FormValues) {
     setSubmitting(true);
     setError(null);
-    try {
-      // TODO: call POST /v1/entities via apiRequest
-      await new Promise((r) => setTimeout(r, 800));
-      router.push("/dashboard/entities");
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
+    const result = await createEntity({ name: values.name, ein: values.ein, state: values.state });
+    if (!result.ok) {
+      setError(result.error);
       setSubmitting(false);
+      return;
     }
+    router.push(`/dashboard/entities/${result.entityId}`);
   }
 
   return (
