@@ -41,7 +41,7 @@ export function startTenantSandboxSetupWorker(): Worker {
           const msg = (err as Error).message ?? "";
           if (!msg.includes("already attached")) throw err;
         }
-        await wingspan.updateCustomization(payeeBucketUserId, {
+        await wingspan.withChild(payeeBucketUserId).updateCustomization(payeeBucketUserId, {
           organizationSettings: {
             defaultNewPayeeParentAccountId: payeeBucketUserId,
           },

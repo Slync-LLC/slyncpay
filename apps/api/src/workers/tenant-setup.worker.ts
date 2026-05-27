@@ -86,7 +86,9 @@ export function startTenantSetupWorker(): Worker {
       // ── Step 3: Set org config (defaultNewPayeeParentAccountId) ─────────────
       await checkpoint(provisioningJobId, "set_org_config", completed);
 
-      await wingspan.updateCustomization(payeeBucketUserId, {
+      // PATCH /users/customization/:id requires acting AS the user — pass
+      // X-WINGSPAN-USER via .withChild
+      await wingspan.withChild(payeeBucketUserId).updateCustomization(payeeBucketUserId, {
         organizationSettings: {
           defaultNewPayeeParentAccountId: payeeBucketUserId,
         },
