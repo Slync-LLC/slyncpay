@@ -225,6 +225,54 @@ contractorRoutes.get("/:id", async (c) => {
   return c.json(toContractorDTO(contractor));
 });
 
+contractorRoutes.delete("/:id", async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id } = c.req.param();
+
+  const [contractor] = await db
+    .select({ id: contractors.id, email: contractors.email })
+    .from(contractors)
+    .where(
+      and(
+        eq(contractors.id, id),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
+    .limit(1);
+  if (!contractor) throw new NotFoundError("Contractor");
+
+  const [[eng], [pay]] = await Promise.all([
+    db.select({ n: count() }).from(engagements).where(eq(engagements.contractorId, id)),
+    db.select({ n: count() }).from(payables).where(eq(payables.contractorId, id)),
+  ]);
+  const refs = Number(eng?.n ?? 0) + Number(pay?.n ?? 0);
+  if (refs > 0) {
+    return c.json(
+      {
+        error: "has_references",
+        message: "Cannot delete contractor with engagements or payables. Mark them inactive instead.",
+      },
+      409,
+    );
+  }
+
+  await db.delete(contractors).where(eq(contractors.id, id));
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "contractor.deleted",
+    resourceType: "contractor",
+    resourceId: id,
+    metadata: { email: contractor.email, environment },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({ ok: true });
+});
+
 contractorRoutes.get("/:id/onboarding-link", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
