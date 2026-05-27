@@ -56,7 +56,8 @@ export function startTenantSetupWorker(): Worker {
       if (tenant.wingspanPayeeBucketUserId) {
         payeeBucketUserId = tenant.wingspanPayeeBucketUserId;
       } else {
-        const bucketEmail = `slyncpay-payees-${tenant.slug}@internal.slyncpay.com`;
+        const uniq = Date.now().toString(36);
+        const bucketEmail = `slyncpay-payees-${tenant.slug}-${uniq}@internal.slyncpay.com`;
         const bucketUser = await wingspan.createChildUser(
           bucketEmail,
           `${tenant.name} Payees`,

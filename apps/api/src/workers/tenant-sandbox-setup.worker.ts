@@ -31,7 +31,10 @@ export function startTenantSandboxSetupWorker(): Worker {
         console.log(`[TenantSandboxSetup] Tenant ${tenantId} already has sandbox payee bucket`);
       } else {
         const wingspan = getWingspanClient("test");
-        const bucketEmail = `slyncpay-payees-sandbox-${tenant.slug}@internal.slyncpay.com`;
+        // Append a unique suffix so retries (after Wingspan-side failures) get a
+        // fresh email. Wingspan rejects re-use of an email that's already taken.
+        const uniq = Date.now().toString(36);
+        const bucketEmail = `slyncpay-payees-sandbox-${tenant.slug}-${uniq}@internal.slyncpay.com`;
         const bucketUser = await wingspan.createChildUser(bucketEmail, `${tenant.name} Payees (Sandbox)`);
         const payeeBucketUserId = bucketUser.userId;
 

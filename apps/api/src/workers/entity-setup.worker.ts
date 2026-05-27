@@ -44,7 +44,8 @@ export function startEntitySetupWorker(): Worker {
       } else {
         const slug = entity.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
         const envSuffix = env === "test" ? "-sb" : "";
-        const entityEmail = `slyncpay-entity${envSuffix}-${slug}-${entityId.slice(0, 8)}@internal.slyncpay.com`;
+        const uniq = Date.now().toString(36);
+        const entityEmail = `slyncpay-entity${envSuffix}-${slug}-${entityId.slice(0, 8)}-${uniq}@internal.slyncpay.com`;
         const displayName = env === "test" ? `${entity.name} (Sandbox)` : entity.name;
 
         const childUser = await wingspan.createChildUser(entityEmail, displayName);
