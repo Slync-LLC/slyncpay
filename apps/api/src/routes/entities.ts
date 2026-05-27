@@ -5,7 +5,7 @@ import { eq, and } from "@slyncpay/db";
 import { db, tenantEntities, provisioningJobs, tenants } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, PlanLimitError } from "../lib/errors.js";
-import { encrypt, maskEin } from "../lib/crypto.js";
+import { encrypt, decrypt, maskEin } from "../lib/crypto.js";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
 import { getEntitySetupQueue } from "../workers/queues.js";
@@ -25,12 +25,17 @@ entityRoutes.get("/", async (c) => {
     .where(and(eq(tenantEntities.tenantId, tenantId), eq(tenantEntities.environment, environment)));
 
   return c.json(
-    rows.map((e) =>
-      toEntityDTO({
-        ...e,
-        einLast4: e.ein ? maskEin(e.ein) : null,
-      }),
-    ),
+    rows.map((e) => {
+      let last4: string | null = null;
+      if (e.ein) {
+        try {
+          last4 = maskEin(decrypt(e.ein));
+        } catch {
+          last4 = null;
+        }
+      }
+      return toEntityDTO({ ...e, einLast4: last4 });
+    }),
   );
 });
 
@@ -136,12 +141,15 @@ entityRoutes.get("/:id", async (c) => {
 
   if (!entity) throw new NotFoundError("Entity");
 
-  return c.json(
-    toEntityDTO({
-      ...entity,
-      einLast4: entity.ein ? maskEin(entity.ein) : null,
-    }),
-  );
+  let last4: string | null = null;
+  if (entity.ein) {
+    try {
+      last4 = maskEin(decrypt(entity.ein));
+    } catch {
+      last4 = null;
+    }
+  }
+  return c.json(toEntityDTO({ ...entity, einLast4: last4 }));
 });
 
 entityRoutes.delete("/:id", async (c) => {
