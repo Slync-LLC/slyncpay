@@ -2,9 +2,8 @@ import { Worker } from "bullmq";
 import { eq } from "@slyncpay/db";
 import { db, tenants, provisioningJobs } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
-import { getWingspanClient } from "../lib/wingspan.js";
-import { env } from "../lib/env.js";
-import { TENANT_SETUP_QUEUE } from "./queues.js";
+import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
+import { TENANT_SETUP_QUEUE, getTenantSandboxSetupQueue } from "./queues.js";
 
 export interface TenantSetupJobData {
   tenantId: string;
@@ -36,7 +35,7 @@ export function startTenantSetupWorker(): Worker {
     TENANT_SETUP_QUEUE,
     async (job) => {
       const { tenantId, provisioningJobId } = job.data;
-      const wingspan = getWingspanClient();
+      const wingspan = getWingspanClient("live");
       const completed: Step[] = [];
 
       // Fetch the tenant
@@ -75,7 +74,7 @@ export function startTenantSetupWorker(): Worker {
       // ── Step 2: Associate Payee Bucket with SlyncPay root parent ─────────────
       await checkpoint(provisioningJobId, "associate_payee_bucket", completed);
 
-      await wingspan.associateChildUser(payeeBucketUserId, env.WINGSPAN_ROOT_USER_ID);
+      await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("live"));
       completed.push("associate_payee_bucket");
 
       // ── Step 3: Set org config (defaultNewPayeeParentAccountId) ─────────────
@@ -103,6 +102,19 @@ export function startTenantSetupWorker(): Worker {
 
       completed.push("mark_active");
       console.log(`[TenantSetup] Tenant ${tenantId} provisioned successfully`);
+
+      // Fire-and-forget sandbox provisioning — non-blocking, can retry independently
+      if (hasSandboxConfig()) {
+        try {
+          await getTenantSandboxSetupQueue().add(
+            "tenant-sandbox-setup",
+            { tenantId },
+            { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+          );
+        } catch (err) {
+          console.error(`[TenantSetup] Failed to enqueue sandbox setup for ${tenantId}:`, (err as Error).message);
+        }
+      }
     },
     {
       connection: getRedis(),

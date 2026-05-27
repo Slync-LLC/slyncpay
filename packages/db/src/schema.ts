@@ -91,6 +91,7 @@ export const tenants = pgTable(
 
     // Wingspan IDs — set during async provisioning
     wingspanPayeeBucketUserId: text("wingspan_payee_bucket_user_id").unique(),
+    wingspanPayeeBucketUserIdSandbox: text("wingspan_payee_bucket_user_id_sandbox").unique(),
 
     // Pricing
     plan: tenantPlanEnum("plan").notNull().default("starter"),
@@ -128,6 +129,8 @@ export const tenantEntities = pgTable(
 
     wingspanChildUserId: text("wingspan_child_user_id").unique(),
     wingspanChildUserEmail: text("wingspan_child_user_email"),
+    wingspanChildUserIdSandbox: text("wingspan_child_user_id_sandbox").unique(),
+    wingspanChildUserEmailSandbox: text("wingspan_child_user_email_sandbox"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -183,6 +186,8 @@ export const contractors = pgTable(
     wingspanPayeeBucketPayeeId: text("wingspan_payee_bucket_payee_id").unique(),
     wingspanUserId: text("wingspan_user_id").unique(),
 
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+
     w9SeededData: jsonb("w9_seeded_data"),
     metadata: jsonb("metadata").notNull().default({}),
 
@@ -190,7 +195,8 @@ export const contractors = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    tenantExternalUniq: uniqueIndex("idx_contractors_tenant_external").on(t.tenantId, t.externalId),
+    tenantEnvExternalUniq: uniqueIndex("idx_contractors_tenant_env_external").on(t.tenantId, t.environment, t.externalId),
+    tenantEnvIdx: index("idx_contractors_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_contractors_tenant_id").on(t.tenantId),
     emailIdx: index("idx_contractors_email").on(t.tenantId, t.email),
     wingspanUserIdIdx: index("idx_contractors_wingspan_user_id").on(t.wingspanUserId),
@@ -220,11 +226,14 @@ export const engagements = pgTable(
     // Entity-scoped payeeId (different from Payee Bucket payeeId)
     wingspanEntityPayeeId: text("wingspan_entity_payee_id"),
 
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    contractorEntityUniq: uniqueIndex("idx_engagements_contractor_entity").on(t.contractorId, t.entityId),
+    contractorEntityEnvUniq: uniqueIndex("idx_engagements_contractor_entity_env").on(t.contractorId, t.entityId, t.environment),
+    tenantEnvIdx: index("idx_engagements_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_engagements_tenant_id").on(t.tenantId),
     contractorIdIdx: index("idx_engagements_contractor_id").on(t.contractorId),
     entityIdIdx: index("idx_engagements_entity_id").on(t.entityId),
@@ -252,8 +261,10 @@ export const disbursements = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
   },
   (t) => ({
+    tenantEnvIdx: index("idx_disbursements_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_disbursements_tenant_id").on(t.tenantId),
     entityIdIdx: index("idx_disbursements_entity_id").on(t.entityId),
     statusIdx: index("idx_disbursements_status").on(t.tenantId, t.status),
@@ -296,14 +307,17 @@ export const payables = pgTable(
     lineItems: jsonb("line_items").notNull().default([]),
     metadata: jsonb("metadata").notNull().default({}),
 
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     paidAt: timestamp("paid_at", { withTimezone: true }),
   },
   (t) => ({
-    tenantExternalRefUniq: uniqueIndex("idx_payables_tenant_external_ref")
-      .on(t.tenantId, t.externalReferenceId)
+    tenantEnvExternalRefUniq: uniqueIndex("idx_payables_tenant_env_external_ref")
+      .on(t.tenantId, t.environment, t.externalReferenceId)
       .where(sql`${t.externalReferenceId} IS NOT NULL`),
+    tenantEnvIdx: index("idx_payables_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_payables_tenant_id").on(t.tenantId),
     entityIdIdx: index("idx_payables_entity_id").on(t.entityId),
     contractorIdIdx: index("idx_payables_contractor_id").on(t.contractorId),

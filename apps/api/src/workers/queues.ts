@@ -3,6 +3,8 @@ import { getRedis } from "../lib/redis.js";
 
 export const TENANT_SETUP_QUEUE = "tenant-setup";
 export const ENTITY_SETUP_QUEUE = "entity-setup";
+export const TENANT_SANDBOX_SETUP_QUEUE = "tenant-sandbox-setup";
+export const ENTITY_SANDBOX_SETUP_QUEUE = "entity-sandbox-setup";
 export const WEBHOOK_DELIVERY_QUEUE = "webhook-delivery";
 
 const JOB_DEFAULTS = {
@@ -12,6 +14,8 @@ const JOB_DEFAULTS = {
 
 let tenantSetupQueue: Queue | null = null;
 let entitySetupQueue: Queue | null = null;
+let tenantSandboxSetupQueue: Queue | null = null;
+let entitySandboxSetupQueue: Queue | null = null;
 let webhookDeliveryQueue: Queue | null = null;
 
 export function getTenantSetupQueue(): Queue {
@@ -32,6 +36,26 @@ export function getEntitySetupQueue(): Queue {
     });
   }
   return entitySetupQueue;
+}
+
+export function getTenantSandboxSetupQueue(): Queue {
+  if (!tenantSandboxSetupQueue) {
+    tenantSandboxSetupQueue = new Queue(TENANT_SANDBOX_SETUP_QUEUE, {
+      connection: getRedis(),
+      defaultJobOptions: JOB_DEFAULTS,
+    });
+  }
+  return tenantSandboxSetupQueue;
+}
+
+export function getEntitySandboxSetupQueue(): Queue {
+  if (!entitySandboxSetupQueue) {
+    entitySandboxSetupQueue = new Queue(ENTITY_SANDBOX_SETUP_QUEUE, {
+      connection: getRedis(),
+      defaultJobOptions: JOB_DEFAULTS,
+    });
+  }
+  return entitySandboxSetupQueue;
 }
 
 export function getWebhookDeliveryQueue(): Queue {

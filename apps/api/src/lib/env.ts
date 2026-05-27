@@ -4,12 +4,39 @@ function required(key: string): string {
   return val;
 }
 
+// Live (production) Wingspan: prefer new WINGSPAN_LIVE_* vars; fall back to legacy WINGSPAN_ROOT_*.
+const wingspanLiveApiToken =
+  process.env["WINGSPAN_LIVE_API_TOKEN"] ?? required("WINGSPAN_ROOT_API_TOKEN");
+const wingspanLiveUserId =
+  process.env["WINGSPAN_LIVE_USER_ID"] ?? required("WINGSPAN_ROOT_USER_ID");
+const wingspanLiveBaseUrl =
+  process.env["WINGSPAN_LIVE_BASE_URL"] ??
+  process.env["WINGSPAN_BASE_URL"] ??
+  "https://api.wingspan.app";
+
+// Sandbox: all optional — if missing, sandbox features return 503 at request time.
+const wingspanSandboxApiToken = process.env["WINGSPAN_SANDBOX_API_TOKEN"] ?? "";
+const wingspanSandboxUserId = process.env["WINGSPAN_SANDBOX_USER_ID"] ?? "";
+const wingspanSandboxBaseUrl =
+  process.env["WINGSPAN_SANDBOX_BASE_URL"] ?? "https://stagingapi.wingspan.app";
+
 export const env = {
   DATABASE_URL: required("DATABASE_URL"),
   REDIS_URL: process.env["REDIS_URL"] ?? "redis://localhost:6379",
-  WINGSPAN_ROOT_API_TOKEN: required("WINGSPAN_ROOT_API_TOKEN"),
-  WINGSPAN_ROOT_USER_ID: required("WINGSPAN_ROOT_USER_ID"),
-  WINGSPAN_BASE_URL: process.env["WINGSPAN_BASE_URL"] ?? "https://api.wingspan.app",
+
+  // Legacy names — keep around so old code paths compile during the rollout
+  WINGSPAN_ROOT_API_TOKEN: wingspanLiveApiToken,
+  WINGSPAN_ROOT_USER_ID: wingspanLiveUserId,
+  WINGSPAN_BASE_URL: wingspanLiveBaseUrl,
+
+  // Per-environment Wingspan configuration
+  WINGSPAN_LIVE_API_TOKEN: wingspanLiveApiToken,
+  WINGSPAN_LIVE_USER_ID: wingspanLiveUserId,
+  WINGSPAN_LIVE_BASE_URL: wingspanLiveBaseUrl,
+  WINGSPAN_SANDBOX_API_TOKEN: wingspanSandboxApiToken,
+  WINGSPAN_SANDBOX_USER_ID: wingspanSandboxUserId,
+  WINGSPAN_SANDBOX_BASE_URL: wingspanSandboxBaseUrl,
+
   PORT: parseInt(process.env["PORT"] ?? "3001", 10),
   API_SECRET: process.env["API_SECRET"] ?? "dev-secret",
   EIN_ENCRYPTION_KEY: required("EIN_ENCRYPTION_KEY"),
@@ -17,3 +44,7 @@ export const env = {
   RESEND_API_KEY: process.env["RESEND_API_KEY"] ?? "",
   RESEND_FROM_EMAIL: process.env["RESEND_FROM_EMAIL"] ?? "SlyncPay <onboarding@resend.dev>",
 } as const;
+
+export function hasSandboxConfig(): boolean {
+  return Boolean(env.WINGSPAN_SANDBOX_API_TOKEN && env.WINGSPAN_SANDBOX_USER_ID);
+}

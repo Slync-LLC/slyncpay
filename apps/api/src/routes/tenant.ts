@@ -1,13 +1,14 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and, desc, lt, lte, gte, sql, like } from "@slyncpay/db";
+import { eq, and, desc, lt, lte, gte, sql, like, isNull } from "@slyncpay/db";
 import { db, tenants, provisioningJobs, auditLog, apiKeys } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
-import { NotFoundError } from "../lib/errors.js";
+import { NotFoundError, ApiError } from "../lib/errors.js";
 import { getWingspanClient } from "../lib/wingspan.js";
 import { logAudit } from "../lib/audit.js";
 import { clientIp } from "../lib/rate-limit.js";
+import { generateApiKey } from "../lib/api-keys.js";
 
 export const tenantRoutes = new Hono();
 tenantRoutes.use("*", authMiddleware);
@@ -262,3 +263,112 @@ tenantRoutes.get(
     return c.json({ events, nextCursor });
   },
 );
+
+// ─── API key management ───────────────────────────────────────────────────────
+
+const createApiKeySchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  environment: z.enum(["live", "test"]),
+});
+
+tenantRoutes.post(
+  "/api-keys",
+  zValidator("json", createApiKeySchema),
+  async (c) => {
+    const { tenantId } = c.var.auth;
+    const { name, environment } = c.req.valid("json");
+
+    const generated = await generateApiKey(environment);
+    const [inserted] = await db
+      .insert(apiKeys)
+      .values({
+        tenantId,
+        keyPrefix: generated.prefix,
+        keyHash: generated.hash,
+        keyHint: generated.hint,
+        environment,
+        name: name ?? `${environment === "test" ? "Sandbox" : "Live"} Key`,
+      })
+      .returning({
+        id: apiKeys.id,
+        keyPrefix: apiKeys.keyPrefix,
+        keyHint: apiKeys.keyHint,
+        environment: apiKeys.environment,
+        name: apiKeys.name,
+        createdAt: apiKeys.createdAt,
+      });
+
+    if (!inserted) throw new Error("Failed to create API key");
+
+    await logAudit({
+      tenantId,
+      actorType: c.var.auth.source === "session" ? "system" : "api_key",
+      actorId: c.var.auth.apiKeyId,
+      action: "apikey.created",
+      resourceType: "api_key",
+      resourceId: inserted.id,
+      metadata: { environment, name: inserted.name },
+      ipAddress: clientIp(c),
+    });
+
+    return c.json(
+      {
+        ...inserted,
+        // Plaintext shown ONCE. Caller must store it now.
+        key: generated.plaintext,
+      },
+      201,
+    );
+  },
+);
+
+tenantRoutes.get("/api-keys", async (c) => {
+  const { tenantId } = c.var.auth;
+  const rows = await db
+    .select({
+      id: apiKeys.id,
+      keyPrefix: apiKeys.keyPrefix,
+      keyHint: apiKeys.keyHint,
+      environment: apiKeys.environment,
+      name: apiKeys.name,
+      lastUsedAt: apiKeys.lastUsedAt,
+      revokedAt: apiKeys.revokedAt,
+      createdAt: apiKeys.createdAt,
+    })
+    .from(apiKeys)
+    .where(eq(apiKeys.tenantId, tenantId))
+    .orderBy(desc(apiKeys.createdAt));
+  return c.json(rows);
+});
+
+tenantRoutes.delete("/api-keys/:id", async (c) => {
+  const { tenantId } = c.var.auth;
+  const { id } = c.req.param();
+
+  // Confirm key belongs to tenant and isn't already revoked
+  const [key] = await db
+    .select({ id: apiKeys.id, environment: apiKeys.environment, revokedAt: apiKeys.revokedAt })
+    .from(apiKeys)
+    .where(and(eq(apiKeys.id, id), eq(apiKeys.tenantId, tenantId)))
+    .limit(1);
+  if (!key) throw new NotFoundError("API key");
+  if (key.revokedAt) throw new ApiError(409, "already_revoked", "Key is already revoked");
+
+  await db
+    .update(apiKeys)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(apiKeys.id, id), isNull(apiKeys.revokedAt)));
+
+  await logAudit({
+    tenantId,
+    actorType: c.var.auth.source === "session" ? "system" : "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "apikey.revoked",
+    resourceType: "api_key",
+    resourceId: id,
+    metadata: { environment: key.environment },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({ ok: true });
+});

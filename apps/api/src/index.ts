@@ -16,7 +16,11 @@ import { disbursementRoutes } from "./routes/disbursements.js";
 import { adminRoutes } from "./routes/admin.js";
 import { startTenantSetupWorker } from "./workers/tenant-setup.worker.js";
 import { startEntitySetupWorker } from "./workers/entity-setup.worker.js";
-import { db, admins, eq, runMigrations } from "@slyncpay/db";
+import { startTenantSandboxSetupWorker } from "./workers/tenant-sandbox-setup.worker.js";
+import { startEntitySandboxSetupWorker } from "./workers/entity-sandbox-setup.worker.js";
+import { getTenantSandboxSetupQueue } from "./workers/queues.js";
+import { hasSandboxConfig } from "./lib/wingspan.js";
+import { db, admins, tenants, eq, isNull, and, runMigrations } from "@slyncpay/db";
 
 const app = new Hono();
 
@@ -94,20 +98,59 @@ async function seedAdmin() {
   console.log("[seed] Admin account created for", email);
 }
 
+/**
+ * Backfill: any existing active tenant without a sandbox payee bucket gets
+ * one queued. Runs once per boot; the worker itself is idempotent.
+ */
+async function enqueueSandboxBackfill() {
+  if (!hasSandboxConfig()) {
+    console.log("[boot] Skipping sandbox backfill — sandbox not configured");
+    return;
+  }
+  const rows = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(and(eq(tenants.status, "active"), isNull(tenants.wingspanPayeeBucketUserIdSandbox)));
+  if (rows.length === 0) return;
+
+  const queue = getTenantSandboxSetupQueue();
+  for (const t of rows) {
+    try {
+      await queue.add(
+        "tenant-sandbox-setup",
+        { tenantId: t.id },
+        { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+      );
+    } catch (err) {
+      console.error(`[boot] Failed to enqueue sandbox backfill for ${t.id}:`, (err as Error).message);
+    }
+  }
+  console.log(`[boot] Enqueued sandbox backfill for ${rows.length} tenant(s)`);
+}
+
 async function boot() {
   await runMigrations();
   await seedAdmin();
 
   const tenantWorker = startTenantSetupWorker();
   const entityWorker = startEntitySetupWorker();
+  const tenantSandboxWorker = startTenantSandboxSetupWorker();
+  const entitySandboxWorker = startEntitySandboxSetupWorker();
 
   tenantWorker.on("failed", (job, err) => {
     console.error(`[TenantSetup] Job ${job?.id} failed:`, err.message);
   });
-
   entityWorker.on("failed", (job, err) => {
     console.error(`[EntitySetup] Job ${job?.id} failed:`, err.message);
   });
+  tenantSandboxWorker.on("failed", (job, err) => {
+    console.error(`[TenantSandboxSetup] Job ${job?.id} failed:`, err.message);
+  });
+  entitySandboxWorker.on("failed", (job, err) => {
+    console.error(`[EntitySandboxSetup] Job ${job?.id} failed:`, err.message);
+  });
+
+  await enqueueSandboxBackfill();
 
   serve({ fetch: app.fetch, port: env.PORT }, () => {
     console.log(`SlyncPay API running on port ${env.PORT}`);

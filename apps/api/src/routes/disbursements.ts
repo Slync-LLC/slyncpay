@@ -18,7 +18,7 @@ disbursementRoutes.post(
   "/",
   zValidator("json", z.object({ entityId: z.string().uuid() })),
   async (c) => {
-    const { tenantId } = c.var.auth;
+    const { tenantId, environment } = c.var.auth;
     const { entityId } = c.req.valid("json");
     const idempotencyKey = c.req.header("Idempotency-Key");
 
@@ -62,11 +62,14 @@ disbursementRoutes.post(
       .limit(1);
 
     if (!entity) throw new NotFoundError("Entity");
-    if (!entity.wingspanChildUserId) {
-      throw new ValidationError("Entity is not yet provisioned in Wingspan");
+
+    const entityChildUserId =
+      environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
+    if (!entityChildUserId) {
+      throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
     }
 
-    // Count + sum pending payables for this entity
+    // Count + sum pending payables for this entity (env-scoped)
     const pendingPayables = await db
       .select({ id: payables.id, amountCents: payables.amountCents, feeAmountCents: payables.feeAmountCents })
       .from(payables)
@@ -74,6 +77,7 @@ disbursementRoutes.post(
         and(
           eq(payables.tenantId, tenantId),
           eq(payables.entityId, entityId),
+          eq(payables.environment, environment),
           eq(payables.status, "pending"),
         ),
       );
@@ -95,6 +99,7 @@ disbursementRoutes.post(
         totalPayablesCount: pendingPayables.length,
         totalAmountCents,
         totalFeesCents,
+        environment,
       })
       .returning();
 
@@ -108,13 +113,14 @@ disbursementRoutes.post(
         and(
           eq(payables.tenantId, tenantId),
           eq(payables.entityId, entityId),
+          eq(payables.environment, environment),
           eq(payables.status, "pending"),
           inArray(payables.id, pendingPayables.map((p) => p.id)),
         ),
       );
 
-    // Call Wingspan: POST /payments/pay-approved (entity context)
-    const wingspan = getWingspanClient().withChild(entity.wingspanChildUserId);
+    // Call Wingspan: POST /payments/pay-approved (env-specific entity context)
+    const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
     const batchResult = await wingspan.payApproved();
 
     // Update disbursement with Wingspan batch ID
@@ -155,7 +161,7 @@ disbursementRoutes.post(
 );
 
 disbursementRoutes.get("/", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const entityId = c.req.query("entityId");
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1", 10);
@@ -163,7 +169,7 @@ disbursementRoutes.get("/", async (c) => {
   const offset = (page - 1) * limit;
 
   type DisbursementStatus = "processing" | "completed" | "failed" | "partial";
-  const conditions = [eq(disbursements.tenantId, tenantId)];
+  const conditions = [eq(disbursements.tenantId, tenantId), eq(disbursements.environment, environment)];
   if (entityId) conditions.push(eq(disbursements.entityId, entityId));
   if (status) conditions.push(eq(disbursements.status, status as DisbursementStatus));
 
@@ -188,13 +194,19 @@ disbursementRoutes.get("/", async (c) => {
 });
 
 disbursementRoutes.get("/:id", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
   const [disbursement] = await db
     .select()
     .from(disbursements)
-    .where(and(eq(disbursements.id, id), eq(disbursements.tenantId, tenantId)))
+    .where(
+      and(
+        eq(disbursements.id, id),
+        eq(disbursements.tenantId, tenantId),
+        eq(disbursements.environment, environment),
+      ),
+    )
     .limit(1);
 
   if (!disbursement) throw new NotFoundError("Disbursement");

@@ -37,7 +37,7 @@ function calculateFee(amountCents: number, feeBps: number, perTxFeeCents: number
 }
 
 payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const body = c.req.valid("json");
   const idempotencyKey = c.req.header("Idempotency-Key");
 
@@ -77,7 +77,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     .limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
 
-  // Resolve engagement
+  // Resolve engagement (env-scoped)
   const [engagement] = await db
     .select()
     .from(engagements)
@@ -86,6 +86,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
         eq(engagements.tenantId, tenantId),
         eq(engagements.contractorId, body.contractorId),
         eq(engagements.entityId, body.entityId),
+        eq(engagements.environment, environment),
       ),
     )
     .limit(1);
@@ -96,21 +97,26 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     );
   }
 
-  // Resolve entity child user
+  // Resolve env-specific entity child user
   const [entity] = await db
-    .select({ wingspanChildUserId: tenantEntities.wingspanChildUserId })
+    .select({
+      wingspanChildUserId: tenantEntities.wingspanChildUserId,
+      wingspanChildUserIdSandbox: tenantEntities.wingspanChildUserIdSandbox,
+    })
     .from(tenantEntities)
     .where(and(eq(tenantEntities.id, body.entityId), eq(tenantEntities.tenantId, tenantId)))
     .limit(1);
 
-  if (!entity?.wingspanChildUserId) {
-    throw new ValidationError("Entity is not yet provisioned");
+  const entityChildUserId =
+    environment === "test" ? entity?.wingspanChildUserIdSandbox : entity?.wingspanChildUserId;
+  if (!entityChildUserId) {
+    throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
   }
 
   const feeAmountCents = calculateFee(body.amountCents, tenant.disbursementFeeBps, tenant.perTxFeeCents);
 
-  // Create payable in Wingspan (entity context)
-  const wingspan = getWingspanClient().withChild(entity.wingspanChildUserId);
+  // Create payable in Wingspan (entity context, env-specific)
+  const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
 
   const wingspanPayable = await wingspan.createPayable({
     collaboratorId: engagement.wingspanPayerPayeeEngagementId,
@@ -143,6 +149,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
       wingspanPayableId: wingspanPayable.payableId,
       lineItems: body.lineItems,
       metadata: body.metadata ?? {},
+      environment,
     })
     .returning();
 
@@ -174,7 +181,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
 });
 
 payableRoutes.get("/", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const entityId = c.req.query("entityId");
   const contractorId = c.req.query("contractorId");
   const status = c.req.query("status");
@@ -183,7 +190,7 @@ payableRoutes.get("/", async (c) => {
   const offset = (page - 1) * limit;
 
   type PayableStatus = "draft" | "pending" | "processing" | "paid" | "failed" | "cancelled";
-  const conditions = [eq(payables.tenantId, tenantId)];
+  const conditions = [eq(payables.tenantId, tenantId), eq(payables.environment, environment)];
   if (entityId) conditions.push(eq(payables.entityId, entityId));
   if (contractorId) conditions.push(eq(payables.contractorId, contractorId));
   if (status) conditions.push(eq(payables.status, status as PayableStatus));
@@ -209,13 +216,15 @@ payableRoutes.get("/", async (c) => {
 });
 
 payableRoutes.get("/:id", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
   const [payable] = await db
     .select()
     .from(payables)
-    .where(and(eq(payables.id, id), eq(payables.tenantId, tenantId)))
+    .where(
+      and(eq(payables.id, id), eq(payables.tenantId, tenantId), eq(payables.environment, environment)),
+    )
     .limit(1);
 
   if (!payable) throw new NotFoundError("Payable");

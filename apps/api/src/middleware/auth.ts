@@ -43,10 +43,16 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
       if (!tenant || tenant.status === "cancelled" || tenant.status === "suspended") {
         throw new UnauthorizedError("Tenant account is not active");
       }
+
+      // Dashboard mode header — defaults to live; only test|live accepted
+      const modeHeader = c.req.header("X-Slyncpay-Mode");
+      const environment: "live" | "test" =
+        modeHeader === "test" ? "test" : "live";
+
       c.set("auth", {
         tenantId: claims.tenantId,
         apiKeyId: `session:${claims.jti}`,
-        environment: "live",
+        environment,
         source: "session",
       });
       await next();

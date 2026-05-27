@@ -3,7 +3,7 @@
   "info": {
     "title": "SlyncPay API",
     "version": "1.0.0",
-    "description": "The SlyncPay API lets you onboard contractors, link them to your entities, create payables, and trigger disbursements. All endpoints are JSON over HTTPS and authenticated with a bearer API key.\n\n**Base URL:** `https://slyncpay-api.onrender.com`\n\n**Auth:** include `Authorization: Bearer spk_live_...` on every request.\n\nGet keys from the [Developer → API Keys](/dashboard/developer/keys) page."
+    "description": "The SlyncPay API lets you onboard contractors, link them to your entities, create payables, and trigger disbursements. All endpoints are JSON over HTTPS and authenticated with a bearer API key.\n\n**Base URL:** `https://slyncpay-api.onrender.com`\n\n**Auth:** include `Authorization: Bearer spk_live_...` on every request.\n\nGet keys from the [Developer → API Keys](/dashboard/developer/keys) page.\n\n## Sandbox vs Live\n\nEvery API key is either **live** (`spk_live_*`) or **test** (`spk_test_*`). Test keys hit an isolated sandbox: contractors, payables, and disbursements created in sandbox never touch real money and never appear in the live environment. Use sandbox to build and test your integration end-to-end before going live.\n\nThe sandbox accepts fake SSNs and EINs, no real emails are sent, and no PDFs are generated.\n\n## Embedded onboarding (iframe)\n\nWhen you create a contractor, the response includes `embeddedOnboardingUrl`. Drop it directly into an iframe in your app — it's the same flow contractors get if you send the link via email. The URL expires 60 minutes after issuance; fetch a fresh one via `GET /v1/contractors/{id}/onboarding-link` if needed.\n\n```html\n<iframe src=\"{embeddedOnboardingUrl}\" width=\"600\" height=\"800\"\n        allow=\"clipboard-write\"></iframe>\n```"
   },
   "servers": [
     { "url": "https://slyncpay-api.onrender.com", "description": "Production" }
@@ -172,7 +172,14 @@
                     {
                       "type": "object",
                       "properties": {
-                        "onboardingUrl": { "type": ["string", "null"], "description": "One-time onboarding link to send to the contractor." }
+                        "embeddedOnboardingUrl": {
+                          "type": ["string", "null"],
+                          "description": "Iframe-safe URL that walks the contractor through W-9, payout setup, and identity. Expires 60 min after issuance. Drop directly into `<iframe src=\"...\">`."
+                        },
+                        "embeddedOnboardingExpiresAt": {
+                          "type": ["string", "null"],
+                          "format": "date-time"
+                        }
                       }
                     }
                   ]
@@ -181,7 +188,7 @@
             }
           },
           "409": { "description": "External ID already used", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "503": { "description": "Tenant provisioning is not complete yet", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "503": { "description": "Tenant provisioning is not complete yet (or sandbox not configured)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "get": {

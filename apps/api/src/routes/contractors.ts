@@ -6,7 +6,7 @@ import { db, contractors, engagements, tenantEntities, tenants, payables, disbur
 import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
-import { getWingspanClient } from "../lib/wingspan.js";
+import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig } from "../lib/wingspan.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -35,14 +35,32 @@ const createContractorSchema = z.object({
 });
 
 contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const body = c.req.valid("json");
 
   // Check plan contractor limit
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
-  if (!tenant.wingspanPayeeBucketUserId) {
-    return c.json({ error: "provisioning_incomplete", message: "Tenant provisioning is not yet complete. Poll /v1/tenant/provisioning-status." }, 503);
+
+  const payeeBucketUserId =
+    environment === "test"
+      ? tenant.wingspanPayeeBucketUserIdSandbox
+      : tenant.wingspanPayeeBucketUserId;
+
+  if (!payeeBucketUserId) {
+    if (environment === "test" && !hasSandboxConfig()) {
+      return c.json(
+        { error: "sandbox_not_configured", message: "Sandbox is not enabled on this server." },
+        503,
+      );
+    }
+    return c.json(
+      {
+        error: "provisioning_incomplete",
+        message: `${environment === "test" ? "Sandbox" : "Live"} provisioning is not yet complete. Poll /v1/tenant/provisioning-status.`,
+      },
+      503,
+    );
   }
 
   const planConfig = PLAN_CONFIG[tenant.plan as TenantPlan];
@@ -50,7 +68,7 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     const [countResult] = await db
       .select({ value: count() })
       .from(contractors)
-      .where(eq(contractors.tenantId, tenantId));
+      .where(and(eq(contractors.tenantId, tenantId), eq(contractors.environment, environment)));
     const contractorCount = countResult?.value ?? 0;
 
     if (contractorCount >= planConfig.maxContractors) {
@@ -60,17 +78,23 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     }
   }
 
-  // Check duplicate externalId
+  // Check duplicate externalId (within this env)
   const [existing] = await db
     .select({ id: contractors.id })
     .from(contractors)
-    .where(and(eq(contractors.tenantId, tenantId), eq(contractors.externalId, body.externalId)))
+    .where(
+      and(
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+        eq(contractors.externalId, body.externalId),
+      ),
+    )
     .limit(1);
 
   if (existing) throw new ConflictError(`Contractor with externalId ${body.externalId} already exists`);
 
   // Call Wingspan: POST /payments/payee from Payee Bucket context
-  const wingspan = getWingspanClient().withChild(tenant.wingspanPayeeBucketUserId);
+  const wingspan = getWingspanClient(environment).withChild(payeeBucketUserId);
 
   const wingspanPayee = await wingspan.createPayee({
     email: body.email,
@@ -103,6 +127,7 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
       onboardingStatus: "invited",
       wingspanPayeeBucketPayeeId: wingspanPayee.payeeId,
       wingspanUserId: wingspanPayee.user.userId,
+      environment,
       metadata: body.metadata ?? {},
       w9SeededData: body.w9Prefill ?? null,
     })
@@ -110,20 +135,19 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
 
   if (!contractor) throw new Error("Failed to create contractor");
 
-  // Get a session token for an immediate onboarding link. Stays opaque to the
-  // tenant — they get a URL string, no underlying-provider hostname leaked
-  // in the UI copy (the link itself still resolves to the provider domain
-  // until the proxy route ships; see plan follow-ups).
-  let onboardingUrl: string | null = null;
+  // Get a session token for an immediate embedded-onboarding URL. The URL is
+  // iframe-safe and the tenant can drop it directly into <iframe src=...>.
+  // Falls back to null if Wingspan rejects the session call — caller can
+  // refetch via GET /v1/contractors/:id/onboarding-link.
+  let embeddedOnboardingUrl: string | null = null;
+  let embeddedOnboardingExpiresAt: string | null = null;
   try {
-    const session = await getWingspanClient().getSessionToken(wingspanPayee.user.userId);
-    const baseUi =
-      process.env["WINGSPAN_BASE_URL"]?.includes("staging")
-        ? "https://staging-my.wingspan.app"
-        : "https://my.wingspan.app";
-    onboardingUrl = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
+    const session = await getWingspanClient(environment).getSessionToken(wingspanPayee.user.userId);
+    const baseUi = wingspanUiBaseUrl(environment);
+    embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
+    embeddedOnboardingExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   } catch {
-    // Non-fatal — tenant can fetch a fresh link via GET /contractors/:id/onboarding-link
+    // Non-fatal
   }
 
   await logAudit({
@@ -140,21 +164,22 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
   return c.json(
     {
       ...toContractorDTO(contractor),
-      onboardingUrl,
+      embeddedOnboardingUrl,
+      embeddedOnboardingExpiresAt,
     },
     201,
   );
 });
 
 contractorRoutes.get("/", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1", 10);
   const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 100);
   const offset = (page - 1) * limit;
 
   type ContractorStatus = "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
-  const conditions = [eq(contractors.tenantId, tenantId)];
+  const conditions = [eq(contractors.tenantId, tenantId), eq(contractors.environment, environment)];
   if (status) {
     conditions.push(eq(contractors.onboardingStatus, status as ContractorStatus));
   }
@@ -180,13 +205,19 @@ contractorRoutes.get("/", async (c) => {
 });
 
 contractorRoutes.get("/:id", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
   const [contractor] = await db
     .select()
     .from(contractors)
-    .where(and(eq(contractors.id, id), eq(contractors.tenantId, tenantId)))
+    .where(
+      and(
+        eq(contractors.id, id),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
     .limit(1);
 
   if (!contractor) throw new NotFoundError("Contractor");
@@ -195,61 +226,82 @@ contractorRoutes.get("/:id", async (c) => {
 });
 
 contractorRoutes.get("/:id/onboarding-link", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
   const [contractor] = await db
     .select({ wingspanUserId: contractors.wingspanUserId })
     .from(contractors)
-    .where(and(eq(contractors.id, id), eq(contractors.tenantId, tenantId)))
+    .where(
+      and(
+        eq(contractors.id, id),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
     .limit(1);
 
   if (!contractor) throw new NotFoundError("Contractor");
   if (!contractor.wingspanUserId) {
-    return c.json({ error: "not_ready", message: "Contractor does not have a Wingspan account yet" }, 422);
+    return c.json({ error: "not_ready", message: "Contractor does not have an onboarding account yet" }, 422);
   }
 
-  const session = await getWingspanClient().getSessionToken(contractor.wingspanUserId);
-  const baseUi =
-    process.env["WINGSPAN_BASE_URL"]?.includes("staging")
-      ? "https://staging-my.wingspan.app"
-      : "https://my.wingspan.app";
+  const session = await getWingspanClient(environment).getSessionToken(contractor.wingspanUserId);
+  const baseUi = wingspanUiBaseUrl(environment);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
+  const embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
 
   return c.json({
-    url: `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`,
+    embeddedOnboardingUrl,
     expiresAt,
+    // Keep `url` for backwards compatibility — same value
+    url: embeddedOnboardingUrl,
   });
 });
 
 // ─── Engagements (contractor ↔ entity) ────────────────────────────────────────
 
 contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.string().uuid() })), async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id: contractorId } = c.req.param();
   const { entityId } = c.req.valid("json");
 
-  // Validate contractor belongs to tenant
+  // Validate contractor belongs to tenant (in this env)
   const [contractor] = await db
     .select()
     .from(contractors)
-    .where(and(eq(contractors.id, contractorId), eq(contractors.tenantId, tenantId)))
+    .where(
+      and(
+        eq(contractors.id, contractorId),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
     .limit(1);
   if (!contractor) throw new NotFoundError("Contractor");
 
-  // Validate entity belongs to tenant and is active
+  // Validate entity belongs to tenant and is active in this env
   const [entity] = await db
     .select()
     .from(tenantEntities)
     .where(and(eq(tenantEntities.id, entityId), eq(tenantEntities.tenantId, tenantId)))
     .limit(1);
   if (!entity) throw new NotFoundError("Entity");
-  if (!entity.wingspanChildUserId) {
-    return c.json({ error: "entity_not_provisioned", message: "Entity is not yet provisioned" }, 422);
+
+  const entityChildUserId =
+    environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
+  if (!entityChildUserId) {
+    return c.json(
+      {
+        error: "entity_not_provisioned",
+        message: `Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`,
+      },
+      422,
+    );
   }
 
-  // Check for existing engagement (idempotent)
+  // Check for existing engagement (idempotent) — scoped by env
   const [existingEngagement] = await db
     .select()
     .from(engagements)
@@ -257,6 +309,7 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
       and(
         eq(engagements.contractorId, contractorId),
         eq(engagements.entityId, entityId),
+        eq(engagements.environment, environment),
       ),
     )
     .limit(1);
@@ -265,8 +318,8 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     return c.json(toEngagementDTO(existingEngagement, { entityName: entity.name }));
   }
 
-  // Call Wingspan: POST /payments/payee from entity context
-  const wingspan = getWingspanClient().withChild(entity.wingspanChildUserId);
+  // Call Wingspan: POST /payments/payee from entity context (env-specific)
+  const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
 
   let wingspanPayee;
   try {
@@ -300,6 +353,7 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
       wingspanPayerPayeeEngagementId: engagementId,
       wingspanEntityPayeeId: wingspanPayee.payeeId,
       status: "active",
+      environment,
     })
     .returning();
 
@@ -320,13 +374,19 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
 });
 
 contractorRoutes.get("/:id/engagements", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id: contractorId } = c.req.param();
 
   const [contractor] = await db
     .select({ id: contractors.id })
     .from(contractors)
-    .where(and(eq(contractors.id, contractorId), eq(contractors.tenantId, tenantId)))
+    .where(
+      and(
+        eq(contractors.id, contractorId),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
     .limit(1);
   if (!contractor) throw new NotFoundError("Contractor");
 
@@ -341,7 +401,7 @@ contractorRoutes.get("/:id/engagements", async (c) => {
     })
     .from(engagements)
     .innerJoin(tenantEntities, eq(engagements.entityId, tenantEntities.id))
-    .where(eq(engagements.contractorId, contractorId));
+    .where(and(eq(engagements.contractorId, contractorId), eq(engagements.environment, environment)));
 
   return c.json(rows.map((r) => toEngagementDTO(r, { entityName: r.entityName })));
 });
@@ -379,7 +439,7 @@ contractorRoutes.post(
   "/:id/pay-now",
   zValidator("json", payNowSchema),
   async (c) => {
-    const { tenantId, apiKeyId } = c.var.auth;
+    const { tenantId, apiKeyId, environment } = c.var.auth;
     const { id: contractorId } = c.req.param();
     const body = c.req.valid("json");
     const idempotencyKey = c.req.header("Idempotency-Key");
@@ -390,7 +450,7 @@ contractorRoutes.post(
 
     // Idempotency replay check
     const requestHash = createHash("sha256")
-      .update(JSON.stringify({ contractorId, ...body }))
+      .update(JSON.stringify({ contractorId, environment, ...body }))
       .digest("hex");
     const [existingKey] = await db
       .select()
@@ -411,11 +471,17 @@ contractorRoutes.post(
       })
       .onConflictDoNothing();
 
-    // Validate contractor + entity ownership and engagement
+    // Validate contractor + entity ownership and engagement (in this env)
     const [contractor] = await db
       .select()
       .from(contractors)
-      .where(and(eq(contractors.id, contractorId), eq(contractors.tenantId, tenantId)))
+      .where(
+        and(
+          eq(contractors.id, contractorId),
+          eq(contractors.tenantId, tenantId),
+          eq(contractors.environment, environment),
+        ),
+      )
       .limit(1);
     if (!contractor) throw new NotFoundError("Contractor");
 
@@ -425,8 +491,11 @@ contractorRoutes.post(
       .where(and(eq(tenantEntities.id, body.entityId), eq(tenantEntities.tenantId, tenantId)))
       .limit(1);
     if (!entity) throw new NotFoundError("Entity");
-    if (!entity.wingspanChildUserId) {
-      throw new ValidationError("Entity is not yet provisioned");
+
+    const entityChildUserId =
+      environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
+    if (!entityChildUserId) {
+      throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
     }
 
     const [engagement] = await db
@@ -437,6 +506,7 @@ contractorRoutes.post(
           eq(engagements.tenantId, tenantId),
           eq(engagements.contractorId, contractorId),
           eq(engagements.entityId, body.entityId),
+          eq(engagements.environment, environment),
         ),
       )
       .limit(1);
@@ -446,7 +516,7 @@ contractorRoutes.post(
       );
     }
 
-    // Inspect pending pool for this entity
+    // Inspect pending pool for this entity (env-scoped)
     const existingPending = await db
       .select({
         id: payables.id,
@@ -465,6 +535,7 @@ contractorRoutes.post(
         and(
           eq(payables.tenantId, tenantId),
           eq(payables.entityId, body.entityId),
+          eq(payables.environment, environment),
           eq(payables.status, "pending"),
         ),
       );
@@ -504,8 +575,8 @@ contractorRoutes.post(
         },
       ];
 
-    // 1. Create payable in the payment processor
-    const wingspan = getWingspanClient().withChild(entity.wingspanChildUserId);
+    // 1. Create payable in the payment processor (env-specific child)
+    const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
     const processorPayable = await wingspan.createPayable({
       collaboratorId: engagement.wingspanPayerPayeeEngagementId,
       dueDate,
@@ -535,6 +606,7 @@ contractorRoutes.post(
         wingspanPayableId: processorPayable.payableId,
         lineItems,
         metadata: {},
+        environment,
       })
       .returning();
 
@@ -555,6 +627,7 @@ contractorRoutes.post(
         totalPayablesCount: sweepIds.length,
         totalAmountCents,
         totalFeesCents,
+        environment,
       })
       .returning();
     if (!disbursement) throw new Error("Failed to create disbursement");

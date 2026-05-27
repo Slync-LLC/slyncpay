@@ -1,0 +1,83 @@
+import { Worker } from "bullmq";
+import { eq, and, isNull } from "@slyncpay/db";
+import { db, tenants, tenantEntities } from "@slyncpay/db";
+import { getRedis } from "../lib/redis.js";
+import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
+import {
+  TENANT_SANDBOX_SETUP_QUEUE,
+  getEntitySandboxSetupQueue,
+} from "./queues.js";
+
+export interface TenantSandboxSetupJobData {
+  tenantId: string;
+}
+
+/**
+ * Provisions a tenant's sandbox Wingspan account.
+ * Mirrors the steps in tenant-setup.worker.ts but writes to the *_sandbox columns
+ * and uses the sandbox Wingspan client. Idempotent — bails out if already done.
+ */
+export function startTenantSandboxSetupWorker(): Worker {
+  return new Worker<TenantSandboxSetupJobData>(
+    TENANT_SANDBOX_SETUP_QUEUE,
+    async (job) => {
+      const { tenantId } = job.data;
+      if (!hasSandboxConfig()) {
+        console.log(`[TenantSandboxSetup] Skipping ${tenantId} — sandbox not configured`);
+        return;
+      }
+
+      const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+      if (!tenant) throw new Error(`Tenant ${tenantId} not found`);
+
+      if (tenant.wingspanPayeeBucketUserIdSandbox) {
+        console.log(`[TenantSandboxSetup] Tenant ${tenantId} already has sandbox payee bucket`);
+      } else {
+        const wingspan = getWingspanClient("test");
+        const bucketEmail = `slyncpay-payees-sandbox-${tenant.slug}@internal.slyncpay.com`;
+        const bucketUser = await wingspan.createChildUser(bucketEmail, `${tenant.name} Payees (Sandbox)`);
+        const payeeBucketUserId = bucketUser.userId;
+
+        await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("test"));
+        await wingspan.updateCustomization(payeeBucketUserId, {
+          organizationSettings: {
+            defaultNewPayeeParentAccountId: payeeBucketUserId,
+          },
+        });
+
+        await db
+          .update(tenants)
+          .set({ wingspanPayeeBucketUserIdSandbox: payeeBucketUserId, updatedAt: new Date() })
+          .where(eq(tenants.id, tenantId));
+
+        console.log(`[TenantSandboxSetup] Tenant ${tenantId} sandbox payee bucket created: ${payeeBucketUserId}`);
+      }
+
+      // Backfill: enqueue sandbox setup for any entities still missing it
+      const entitiesMissingSandbox = await db
+        .select({ id: tenantEntities.id })
+        .from(tenantEntities)
+        .where(
+          and(
+            eq(tenantEntities.tenantId, tenantId),
+            isNull(tenantEntities.wingspanChildUserIdSandbox),
+          ),
+        );
+
+      for (const e of entitiesMissingSandbox) {
+        try {
+          await getEntitySandboxSetupQueue().add(
+            "entity-sandbox-setup",
+            { entityId: e.id, tenantId },
+            { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+          );
+        } catch (err) {
+          console.error(`[TenantSandboxSetup] Failed to enqueue entity-sandbox-setup ${e.id}:`, (err as Error).message);
+        }
+      }
+    },
+    {
+      connection: getRedis(),
+    },
+  );
+}

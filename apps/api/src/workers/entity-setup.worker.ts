@@ -2,9 +2,8 @@ import { Worker } from "bullmq";
 import { eq } from "@slyncpay/db";
 import { db, tenantEntities, provisioningJobs } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
-import { getWingspanClient } from "../lib/wingspan.js";
-import { env } from "../lib/env.js";
-import { ENTITY_SETUP_QUEUE } from "./queues.js";
+import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
+import { ENTITY_SETUP_QUEUE, getEntitySandboxSetupQueue } from "./queues.js";
 
 export interface EntitySetupJobData {
   entityId: string;
@@ -16,8 +15,8 @@ export function startEntitySetupWorker(): Worker {
   return new Worker<EntitySetupJobData>(
     ENTITY_SETUP_QUEUE,
     async (job) => {
-      const { entityId, provisioningJobId } = job.data;
-      const wingspan = getWingspanClient();
+      const { entityId, tenantId, provisioningJobId } = job.data;
+      const wingspan = getWingspanClient("live");
 
       const [entity] = await db
         .select()
@@ -54,7 +53,7 @@ export function startEntitySetupWorker(): Worker {
       }
 
       // ── Step 2: Associate with root parent ───────────────────────────────────
-      await wingspan.associateChildUser(entityChildUserId, env.WINGSPAN_ROOT_USER_ID);
+      await wingspan.associateChildUser(entityChildUserId, wingspanRootUserId("live"));
 
       // ── Step 3: Mark entity active ───────────────────────────────────────────
       await db
@@ -72,6 +71,19 @@ export function startEntitySetupWorker(): Worker {
         .where(eq(provisioningJobs.id, provisioningJobId));
 
       console.log(`[EntitySetup] Entity ${entityId} provisioned successfully`);
+
+      // Fire-and-forget sandbox provisioning
+      if (hasSandboxConfig()) {
+        try {
+          await getEntitySandboxSetupQueue().add(
+            "entity-sandbox-setup",
+            { entityId, tenantId },
+            { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
+          );
+        } catch (err) {
+          console.error(`[EntitySetup] Failed to enqueue sandbox setup for ${entityId}:`, (err as Error).message);
+        }
+      }
     },
     {
       connection: getRedis(),

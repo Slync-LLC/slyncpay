@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Providers } from "@/components/providers";
 import { signOut } from "@/app/(auth)/actions";
 import { exitImpersonation } from "@/app/admin/actions";
+import { ModeToggle } from "./mode-toggle";
 import {
   LayoutDashboard,
   Users,
@@ -20,6 +21,7 @@ import {
   Shield,
   BookOpen,
   Activity,
+  Beaker,
 } from "lucide-react";
 
 const navItems = [
@@ -42,10 +44,11 @@ interface Props {
   email: string;
   name: string;
   impersonating?: string;
+  mode: "live" | "test";
   children: React.ReactNode;
 }
 
-export function DashboardLayoutClient({ email, name, impersonating, children }: Props) {
+export function DashboardLayoutClient({ email, name, impersonating, mode, children }: Props) {
   const pathname = usePathname();
   const initial = (name || email).charAt(0).toUpperCase();
 
@@ -64,6 +67,12 @@ export function DashboardLayoutClient({ email, name, impersonating, children }: 
           </form>
         </div>
       )}
+      {mode === "test" && (
+        <div className="flex items-center justify-center gap-2 bg-orange-100 text-orange-900 border-b border-orange-200 px-4 py-1.5 text-xs font-medium flex-shrink-0">
+          <Beaker className="h-3.5 w-3.5" />
+          <span>Sandbox mode — data here is for testing only and never touches real payments.</span>
+        </div>
+      )}
       <div className="flex flex-1 overflow-hidden">
       <aside className="w-56 border-r border-border flex flex-col bg-white">
         <div className="px-4 py-5 border-b border-border">
@@ -71,6 +80,8 @@ export function DashboardLayoutClient({ email, name, impersonating, children }: 
             SlyncPay
           </Link>
         </div>
+
+        <ModeToggle mode={mode} />
 
         <nav className="flex-1 overflow-y-auto p-3 space-y-0.5">
           {navItems.map(({ href, label, icon: Icon }) => (

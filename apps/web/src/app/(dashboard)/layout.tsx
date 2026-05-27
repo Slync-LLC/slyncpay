@@ -21,8 +21,16 @@ async function getSession() {
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await getSession();
   const impersonating = cookies().get("__slyncpay_impersonating")?.value;
+  const modeRaw = cookies().get("__slyncpay_mode")?.value;
+  const mode: "live" | "test" = modeRaw === "test" ? "test" : "live";
+
   return (
-    <DashboardLayoutClient email={session.email} name={session.name} impersonating={impersonating}>
+    <DashboardLayoutClient
+      email={session.email}
+      name={session.name}
+      impersonating={impersonating}
+      mode={mode}
+    >
       {children}
     </DashboardLayoutClient>
   );

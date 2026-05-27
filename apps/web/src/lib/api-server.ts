@@ -10,6 +10,13 @@ import { cookies } from "next/headers";
 
 const API_BASE = process.env["API_URL"] ?? "https://slyncpay-api.onrender.com";
 const SESSION_COOKIE = "__slyncpay_session";
+const MODE_COOKIE = "__slyncpay_mode";
+
+/** Returns "live" | "test" — defaults to "live". */
+export function getDashboardMode(): "live" | "test" {
+  const raw = cookies().get(MODE_COOKIE)?.value;
+  return raw === "test" ? "test" : "live";
+}
 
 export class ServerApiError extends Error {
   constructor(
@@ -27,8 +34,10 @@ export async function apiServerFetch(
   init: RequestInit & { idempotencyKey?: string } = {},
 ): Promise<Response> {
   const token = cookies().get(SESSION_COOKIE)?.value;
+  const mode = getDashboardMode();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "X-Slyncpay-Mode": mode,
     ...((init.headers ?? {}) as Record<string, string>),
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
