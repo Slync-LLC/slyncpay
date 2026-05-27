@@ -408,8 +408,9 @@ adminRoutes.post("/tenants/:id/reprovision", async (c) => {
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, id)).limit(1);
   if (!tenant) throw new ApiError(404, "not_found", "Tenant not found");
 
-  // Queue live tenant setup if the live payee bucket is missing
-  if (!tenant.wingspanPayeeBucketUserId) {
+  // Queue live tenant setup if the tenant hasn't been activated yet
+  const needsLive = tenant.status !== "active" || !tenant.wingspanPayeeBucketUserId;
+  if (needsLive) {
     const [job] = await db
       .insert(provisioningJobs)
       .values({ tenantId: tenant.id, jobType: "tenant_setup", status: "pending" })
@@ -424,7 +425,8 @@ adminRoutes.post("/tenants/:id/reprovision", async (c) => {
   }
 
   // Queue sandbox tenant setup if sandbox is configured and bucket is missing
-  if (hasSandboxConfig() && !tenant.wingspanPayeeBucketUserIdSandbox) {
+  const needsSandbox = hasSandboxConfig() && !tenant.wingspanPayeeBucketUserIdSandbox;
+  if (needsSandbox) {
     await getTenantSandboxSetupQueue().add(
       "tenant-sandbox-setup",
       { tenantId: tenant.id },
@@ -449,10 +451,7 @@ adminRoutes.post("/tenants/:id/reprovision", async (c) => {
 
   return c.json({
     ok: true,
-    queued: {
-      live: !tenant.wingspanPayeeBucketUserId,
-      sandbox: hasSandboxConfig() && !tenant.wingspanPayeeBucketUserIdSandbox,
-    },
+    queued: { live: needsLive, sandbox: needsSandbox },
   });
 });
 

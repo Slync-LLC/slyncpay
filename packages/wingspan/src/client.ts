@@ -84,10 +84,15 @@ export class WingspanClient {
     }
 
     if (!res.ok) {
-      const msg =
-        typeof json === "object" && json !== null && "message" in json
-          ? String((json as Record<string, unknown>)["message"])
-          : `HTTP ${res.status}`;
+      let msg: string;
+      if (typeof json === "object" && json !== null) {
+        const obj = json as Record<string, unknown>;
+        if ("message" in obj) msg = String(obj["message"]);
+        else if ("error" in obj) msg = String(obj["error"]);
+        else msg = `HTTP ${res.status} ${text.slice(0, 200)}`;
+      } else {
+        msg = `HTTP ${res.status} ${text.slice(0, 200)}`;
+      }
       throw new WingspanApiError(res.status, msg, res.headers.get("x-request-id") ?? undefined);
     }
 
