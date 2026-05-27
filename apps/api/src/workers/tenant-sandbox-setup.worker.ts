@@ -1,12 +1,9 @@
 import { Worker } from "bullmq";
-import { eq, and, isNull } from "@slyncpay/db";
-import { db, tenants, tenantEntities } from "@slyncpay/db";
+import { eq } from "@slyncpay/db";
+import { db, tenants } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
 import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
-import {
-  TENANT_SANDBOX_SETUP_QUEUE,
-  getEntitySandboxSetupQueue,
-} from "./queues.js";
+import { TENANT_SANDBOX_SETUP_QUEUE } from "./queues.js";
 
 export interface TenantSandboxSetupJobData {
   tenantId: string;
@@ -51,29 +48,6 @@ export function startTenantSandboxSetupWorker(): Worker {
           .where(eq(tenants.id, tenantId));
 
         console.log(`[TenantSandboxSetup] Tenant ${tenantId} sandbox payee bucket created: ${payeeBucketUserId}`);
-      }
-
-      // Backfill: enqueue sandbox setup for any entities still missing it
-      const entitiesMissingSandbox = await db
-        .select({ id: tenantEntities.id })
-        .from(tenantEntities)
-        .where(
-          and(
-            eq(tenantEntities.tenantId, tenantId),
-            isNull(tenantEntities.wingspanChildUserIdSandbox),
-          ),
-        );
-
-      for (const e of entitiesMissingSandbox) {
-        try {
-          await getEntitySandboxSetupQueue().add(
-            "entity-sandbox-setup",
-            { entityId: e.id, tenantId },
-            { attempts: 3, backoff: { type: "exponential", delay: 5000 } },
-          );
-        } catch (err) {
-          console.error(`[TenantSandboxSetup] Failed to enqueue entity-sandbox-setup ${e.id}:`, (err as Error).message);
-        }
       }
     },
     {

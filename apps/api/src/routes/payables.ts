@@ -97,21 +97,23 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     );
   }
 
-  // Resolve env-specific entity child user
+  // Resolve env-scoped entity child user (each entity belongs to one env now)
   const [entity] = await db
-    .select({
-      wingspanChildUserId: tenantEntities.wingspanChildUserId,
-      wingspanChildUserIdSandbox: tenantEntities.wingspanChildUserIdSandbox,
-    })
+    .select({ wingspanChildUserId: tenantEntities.wingspanChildUserId })
     .from(tenantEntities)
-    .where(and(eq(tenantEntities.id, body.entityId), eq(tenantEntities.tenantId, tenantId)))
+    .where(
+      and(
+        eq(tenantEntities.id, body.entityId),
+        eq(tenantEntities.tenantId, tenantId),
+        eq(tenantEntities.environment, environment),
+      ),
+    )
     .limit(1);
 
-  const entityChildUserId =
-    environment === "test" ? entity?.wingspanChildUserIdSandbox : entity?.wingspanChildUserId;
-  if (!entityChildUserId) {
-    throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
+  if (!entity?.wingspanChildUserId) {
+    throw new ValidationError("Entity is not yet provisioned");
   }
+  const entityChildUserId = entity.wingspanChildUserId;
 
   const feeAmountCents = calculateFee(body.amountCents, tenant.disbursementFeeBps, tenant.perTxFeeCents);
 

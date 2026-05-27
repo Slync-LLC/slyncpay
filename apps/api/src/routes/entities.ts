@@ -17,12 +17,12 @@ export const entityRoutes = new Hono();
 entityRoutes.use("*", authMiddleware);
 
 entityRoutes.get("/", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
 
   const rows = await db
     .select()
     .from(tenantEntities)
-    .where(eq(tenantEntities.tenantId, tenantId));
+    .where(and(eq(tenantEntities.tenantId, tenantId), eq(tenantEntities.environment, environment)));
 
   return c.json(
     rows.map((e) =>
@@ -41,10 +41,10 @@ const createEntitySchema = z.object({
 });
 
 entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const body = c.req.valid("json");
 
-  // Check plan entity limit
+  // Check plan entity limit (env-scoped — sandbox doesn't count against live limit)
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
 
@@ -53,7 +53,7 @@ entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
     const existing = await db
       .select({ id: tenantEntities.id })
       .from(tenantEntities)
-      .where(eq(tenantEntities.tenantId, tenantId));
+      .where(and(eq(tenantEntities.tenantId, tenantId), eq(tenantEntities.environment, environment)));
 
     if (existing.length >= planConfig.maxEntities) {
       throw new PlanLimitError(
@@ -73,6 +73,7 @@ entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
       ein: encryptedEin,
       state: body.state ?? null,
       status: "pending",
+      environment,
     })
     .returning();
 
@@ -118,13 +119,19 @@ entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
 });
 
 entityRoutes.get("/:id", async (c) => {
-  const { tenantId } = c.var.auth;
+  const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
   const [entity] = await db
     .select()
     .from(tenantEntities)
-    .where(and(eq(tenantEntities.id, id), eq(tenantEntities.tenantId, tenantId)))
+    .where(
+      and(
+        eq(tenantEntities.id, id),
+        eq(tenantEntities.tenantId, tenantId),
+        eq(tenantEntities.environment, environment),
+      ),
+    )
     .limit(1);
 
   if (!entity) throw new NotFoundError("Entity");
@@ -135,6 +142,60 @@ entityRoutes.get("/:id", async (c) => {
       einLast4: entity.ein ? maskEin(entity.ein) : null,
     }),
   );
+});
+
+entityRoutes.delete("/:id", async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id } = c.req.param();
+
+  const [entity] = await db
+    .select({ id: tenantEntities.id, name: tenantEntities.name })
+    .from(tenantEntities)
+    .where(
+      and(
+        eq(tenantEntities.id, id),
+        eq(tenantEntities.tenantId, tenantId),
+        eq(tenantEntities.environment, environment),
+      ),
+    )
+    .limit(1);
+  if (!entity) throw new NotFoundError("Entity");
+
+  // Safety: refuse delete if there are any contractors/payables/disbursements/engagements
+  const { engagements, payables, disbursements, contractors } = await import("@slyncpay/db");
+  const { count } = await import("@slyncpay/db");
+  const [[eng], [pay], [dis]] = await Promise.all([
+    db.select({ n: count() }).from(engagements).where(eq(engagements.entityId, id)),
+    db.select({ n: count() }).from(payables).where(eq(payables.entityId, id)),
+    db.select({ n: count() }).from(disbursements).where(eq(disbursements.entityId, id)),
+  ]);
+  void contractors;
+
+  const refs = Number(eng?.n ?? 0) + Number(pay?.n ?? 0) + Number(dis?.n ?? 0);
+  if (refs > 0) {
+    return c.json(
+      {
+        error: "has_references",
+        message: "Cannot delete entity with engagements, payables, or disbursements attached.",
+      },
+      409,
+    );
+  }
+
+  await db.delete(tenantEntities).where(eq(tenantEntities.id, id));
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "entity.deleted",
+    resourceType: "entity",
+    resourceId: id,
+    metadata: { name: entity.name, environment },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({ ok: true });
 });
 
 entityRoutes.get("/:id/provisioning-status", async (c) => {

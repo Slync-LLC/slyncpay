@@ -281,25 +281,27 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     .limit(1);
   if (!contractor) throw new NotFoundError("Contractor");
 
-  // Validate entity belongs to tenant and is active in this env
+  // Validate env-scoped entity
   const [entity] = await db
     .select()
     .from(tenantEntities)
-    .where(and(eq(tenantEntities.id, entityId), eq(tenantEntities.tenantId, tenantId)))
+    .where(
+      and(
+        eq(tenantEntities.id, entityId),
+        eq(tenantEntities.tenantId, tenantId),
+        eq(tenantEntities.environment, environment),
+      ),
+    )
     .limit(1);
   if (!entity) throw new NotFoundError("Entity");
 
-  const entityChildUserId =
-    environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
-  if (!entityChildUserId) {
+  if (!entity.wingspanChildUserId) {
     return c.json(
-      {
-        error: "entity_not_provisioned",
-        message: `Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`,
-      },
+      { error: "entity_not_provisioned", message: "Entity is not yet provisioned" },
       422,
     );
   }
+  const entityChildUserId = entity.wingspanChildUserId;
 
   // Check for existing engagement (idempotent) — scoped by env
   const [existingEngagement] = await db
@@ -488,15 +490,20 @@ contractorRoutes.post(
     const [entity] = await db
       .select()
       .from(tenantEntities)
-      .where(and(eq(tenantEntities.id, body.entityId), eq(tenantEntities.tenantId, tenantId)))
+      .where(
+        and(
+          eq(tenantEntities.id, body.entityId),
+          eq(tenantEntities.tenantId, tenantId),
+          eq(tenantEntities.environment, environment),
+        ),
+      )
       .limit(1);
     if (!entity) throw new NotFoundError("Entity");
 
-    const entityChildUserId =
-      environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
-    if (!entityChildUserId) {
-      throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
+    if (!entity.wingspanChildUserId) {
+      throw new ValidationError("Entity is not yet provisioned");
     }
+    const entityChildUserId = entity.wingspanChildUserId;
 
     const [engagement] = await db
       .select()

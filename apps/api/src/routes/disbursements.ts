@@ -54,20 +54,24 @@ disbursementRoutes.post(
       })
       .onConflictDoNothing();
 
-    // Validate entity
+    // Validate env-scoped entity
     const [entity] = await db
       .select()
       .from(tenantEntities)
-      .where(and(eq(tenantEntities.id, entityId), eq(tenantEntities.tenantId, tenantId)))
+      .where(
+        and(
+          eq(tenantEntities.id, entityId),
+          eq(tenantEntities.tenantId, tenantId),
+          eq(tenantEntities.environment, environment),
+        ),
+      )
       .limit(1);
 
     if (!entity) throw new NotFoundError("Entity");
-
-    const entityChildUserId =
-      environment === "test" ? entity.wingspanChildUserIdSandbox : entity.wingspanChildUserId;
-    if (!entityChildUserId) {
-      throw new ValidationError(`Entity is not yet provisioned in ${environment === "test" ? "sandbox" : "live"}`);
+    if (!entity.wingspanChildUserId) {
+      throw new ValidationError("Entity is not yet provisioned");
     }
+    const entityChildUserId = entity.wingspanChildUserId;
 
     // Count + sum pending payables for this entity (env-scoped)
     const pendingPayables = await db

@@ -129,15 +129,21 @@ export const tenantEntities = pgTable(
 
     wingspanChildUserId: text("wingspan_child_user_id").unique(),
     wingspanChildUserEmail: text("wingspan_child_user_email"),
+
+    // Each entity now exists in ONE environment. (Sandbox columns kept as nullable
+    // in the DB until the next migration; not referenced by code anymore.)
     wingspanChildUserIdSandbox: text("wingspan_child_user_id_sandbox").unique(),
     wingspanChildUserEmailSandbox: text("wingspan_child_user_email_sandbox"),
+
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     tenantIdIdx: index("idx_tenant_entities_tenant_id").on(t.tenantId),
-    tenantNameUniq: uniqueIndex("idx_tenant_entities_tenant_name").on(t.tenantId, t.name),
+    tenantEnvNameUniq: uniqueIndex("idx_tenant_entities_tenant_env_name").on(t.tenantId, t.environment, t.name),
+    tenantEnvIdx: index("idx_tenant_entities_tenant_env").on(t.tenantId, t.environment),
   }),
 );
 
