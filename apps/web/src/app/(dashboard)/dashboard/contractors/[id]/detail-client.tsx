@@ -253,35 +253,67 @@ export function ContractorDetailClient(props: {
       )}
 
       {tab === "payments" && (
-        <div className="bg-white rounded-xl border border-border overflow-hidden">
-          {payables.length === 0 ? (
-            <div className="p-8 text-center text-sm text-muted-foreground">No payments yet.</div>
-          ) : (
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-muted/30">
-                  <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Reference</th>
-                  <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                  <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
-                  <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {payables.map((p) => (
-                  <tr key={p.id}>
-                    <td className="px-5 py-3.5 font-mono text-xs">{p.externalReferenceId ?? p.id.slice(0, 8)}</td>
-                    <td className="px-5 py-3.5">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[p.status] ?? ""}`}>
-                        {STATUS_LABELS[p.status] ?? p.status}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3.5 text-sm text-muted-foreground">{new Date(p.createdAt).toLocaleDateString()}</td>
-                    <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(p.amountCents)}</td>
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm text-muted-foreground">
+              Each payment creates a payable and immediately processes the disbursement.
+            </p>
+            {engagements.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setPayOpen(true)}
+                className="flex items-center gap-1.5 bg-primary text-primary-foreground rounded-md px-3 py-1.5 text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                <Send className="h-3.5 w-3.5" />
+                New payment
+              </button>
+            ) : (
+              <span className="text-xs text-muted-foreground">
+                Attach to an entity to enable payments.
+              </span>
+            )}
+          </div>
+          <div className="bg-white rounded-xl border border-border overflow-hidden">
+            {payables.length === 0 ? (
+              <div className="p-8 text-center text-sm text-muted-foreground">
+                No payments yet.{" "}
+                {engagements.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setPayOpen(true)}
+                    className="text-primary hover:underline"
+                  >
+                    Send the first one.
+                  </button>
+                )}
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Reference</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                    <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Date</th>
+                    <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {payables.map((p) => (
+                    <tr key={p.id}>
+                      <td className="px-5 py-3.5 font-mono text-xs">{p.externalReferenceId ?? p.id.slice(0, 8)}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[p.status] ?? ""}`}>
+                          {STATUS_LABELS[p.status] ?? p.status}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3.5 text-sm text-muted-foreground">{new Date(p.createdAt).toLocaleDateString()}</td>
+                      <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(p.amountCents)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       )}
 
