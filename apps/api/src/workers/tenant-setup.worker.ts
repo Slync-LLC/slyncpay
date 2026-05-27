@@ -74,7 +74,13 @@ export function startTenantSetupWorker(): Worker {
       // ── Step 2: Associate Payee Bucket with SlyncPay root parent ─────────────
       await checkpoint(provisioningJobId, "associate_payee_bucket", completed);
 
-      await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("live"));
+      try {
+        await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("live"));
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        // Already-associated is an idempotent success in our model
+        if (!msg.includes("already attached")) throw err;
+      }
       completed.push("associate_payee_bucket");
 
       // ── Step 3: Set org config (defaultNewPayeeParentAccountId) ─────────────

@@ -35,7 +35,12 @@ export function startTenantSandboxSetupWorker(): Worker {
         const bucketUser = await wingspan.createChildUser(bucketEmail, `${tenant.name} Payees (Sandbox)`);
         const payeeBucketUserId = bucketUser.userId;
 
-        await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("test"));
+        try {
+          await wingspan.associateChildUser(payeeBucketUserId, wingspanRootUserId("test"));
+        } catch (err) {
+          const msg = (err as Error).message ?? "";
+          if (!msg.includes("already attached")) throw err;
+        }
         await wingspan.updateCustomization(payeeBucketUserId, {
           organizationSettings: {
             defaultNewPayeeParentAccountId: payeeBucketUserId,

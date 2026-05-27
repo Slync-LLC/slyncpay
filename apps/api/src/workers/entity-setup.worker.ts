@@ -60,8 +60,13 @@ export function startEntitySetupWorker(): Worker {
           .where(eq(tenantEntities.id, entityId));
       }
 
-      // Step 2: associate with the env-specific root parent
-      await wingspan.associateChildUser(entityChildUserId, wingspanRootUserId(env));
+      // Step 2: associate with the env-specific root parent (idempotent)
+      try {
+        await wingspan.associateChildUser(entityChildUserId, wingspanRootUserId(env));
+      } catch (err) {
+        const msg = (err as Error).message ?? "";
+        if (!msg.includes("already attached")) throw err;
+      }
 
       // Step 3: mark entity active
       await db
