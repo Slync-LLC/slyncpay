@@ -77,6 +77,26 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     .limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
 
+  // Contractor must be fully onboarded before they can be paid
+  const [contractor] = await db
+    .select({ id: contractors.id, onboardingStatus: contractors.onboardingStatus })
+    .from(contractors)
+    .where(
+      and(
+        eq(contractors.id, body.contractorId),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
+    .limit(1);
+
+  if (!contractor) throw new NotFoundError("Contractor");
+  if (contractor.onboardingStatus !== "active") {
+    throw new ValidationError(
+      `Contractor onboarding is not complete (status: ${contractor.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
+    );
+  }
+
   // Resolve engagement (env-scoped)
   const [engagement] = await db
     .select()

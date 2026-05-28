@@ -377,7 +377,11 @@ export function ContractorDetailClient(props: {
             <p className="text-sm text-muted-foreground">
               Each payment creates a payable and immediately processes the disbursement.
             </p>
-            {engagements.length > 0 ? (
+            {c.onboardingStatus !== "active" ? (
+              <span className="text-xs text-muted-foreground">
+                Contractor must complete onboarding before payments are allowed.
+              </span>
+            ) : engagements.length > 0 ? (
               <button
                 type="button"
                 onClick={() => setPayOpen(true)}

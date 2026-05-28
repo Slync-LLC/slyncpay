@@ -586,6 +586,11 @@ contractorRoutes.post(
       )
       .limit(1);
     if (!contractor) throw new NotFoundError("Contractor");
+    if (contractor.onboardingStatus !== "active") {
+      throw new ValidationError(
+        `Contractor onboarding is not complete (status: ${contractor.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
+      );
+    }
 
     const [entity] = await db
       .select()

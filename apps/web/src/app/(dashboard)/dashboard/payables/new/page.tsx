@@ -7,6 +7,7 @@ interface Contractor {
   email: string;
   firstName: string | null;
   lastName: string | null;
+  onboardingStatus: string;
 }
 
 interface Entity {
@@ -24,7 +25,7 @@ export default async function NewPayablePage() {
       apiServerGet<{ data: Contractor[] }>("/v1/contractors?limit=200"),
       apiServerGet<Entity[]>("/v1/entities"),
     ]);
-    contractors = contractorRes.data;
+    contractors = contractorRes.data.filter((c) => c.onboardingStatus === "active");
     entities = entityRes.filter((e) => e.status === "active");
   } catch {
     // empty state — form handles gracefully
