@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { apiServerJson, ServerApiError } from "@/lib/api-server";
+import { apiServerJson, apiServerGet, ServerApiError } from "@/lib/api-server";
 
 interface CreateContractorInput {
   externalId: string;
@@ -122,4 +122,18 @@ export async function payContractorNow(input: PayNowInput): Promise<
 
 export async function redirectToContractor(contractorId: string) {
   redirect(`/dashboard/contractors/${contractorId}`);
+}
+
+export async function getContractorOnboardingLink(
+  contractorId: string,
+): Promise<{ ok: true; url: string; expiresAt: string } | { ok: false; error: string }> {
+  try {
+    const res = await apiServerGet<{ url: string; expiresAt: string }>(
+      `/v1/contractors/${contractorId}/onboarding-link`,
+    );
+    return { ok: true, url: res.url, expiresAt: res.expiresAt };
+  } catch (err) {
+    if (err instanceof ServerApiError) return { ok: false, error: err.message };
+    return { ok: false, error: "Could not fetch onboarding link" };
+  }
 }

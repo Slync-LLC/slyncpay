@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Users, Plus, ChevronRight } from "lucide-react";
 import { apiServerGet } from "@/lib/api-server";
+import { OnboardingLinkButton } from "./onboarding-link-button";
 
 interface Contractor {
   id: string;
@@ -145,12 +146,19 @@ export default async function ContractorsPage({ searchParams }: { searchParams: 
                       {new Date(c.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-5 py-3.5 text-right">
-                      <Link
-                        href={`/dashboard/contractors/${c.id}`}
-                        className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        View <ChevronRight className="h-3 w-3" />
-                      </Link>
+                      <div className="inline-flex items-center gap-4">
+                        <OnboardingLinkButton
+                          contractorId={c.id}
+                          contractorEmail={c.email}
+                          disabled={c.onboardingStatus === "active" || c.onboardingStatus === "inactive"}
+                        />
+                        <Link
+                          href={`/dashboard/contractors/${c.id}`}
+                          className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          View <ChevronRight className="h-3 w-3" />
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 );
