@@ -253,12 +253,15 @@ export const engagements = pgTable(
     // Mirrors Wingspan V3 engagement.type. Must match the parent entity's taxType.
     type: engagementTypeEnum("type").notNull().default("contractor"),
 
-    // THE critical ID — used as collaboratorId on every payable (1099 only;
-    // W-2 engagements have no Wingspan engagement ID until Phase 2 wires V3).
-    wingspanPayerPayeeEngagementId: text("wingspan_payer_payee_engagement_id").notNull().unique(),
+    // V1 collaboratorId — used on every 1099 payable. NULL for W-2 engagements.
+    wingspanPayerPayeeEngagementId: text("wingspan_payer_payee_engagement_id").unique(),
 
-    // Entity-scoped payeeId (different from Payee Bucket payeeId)
+    // V1 entity-scoped payeeId (different from Payee Bucket payeeId). 1099 only.
     wingspanEntityPayeeId: text("wingspan_entity_payee_id"),
+
+    // V3 IDs — populated for W-2 engagements.
+    wingspanV3PayeeId: text("wingspan_v3_payee_id"),
+    wingspanV3EngagementId: text("wingspan_v3_engagement_id"),
 
     // W-2-only fields (set by the V3 engagement create flow). Null for 1099s.
     engagementTemplateId: uuid("engagement_template_id"),

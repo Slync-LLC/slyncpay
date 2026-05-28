@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ChevronLeft, Building2, Banknote, Clock, CheckCircle2, ExternalLink } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
+import { EngagementTemplatesCard } from "./engagement-templates-card";
 
 interface WingspanInfo {
   environment: "live" | "test";
@@ -33,6 +34,15 @@ interface Worksite {
   state: string;
   postalCode: string;
   country: string;
+}
+
+interface EngagementTemplate {
+  id: string;
+  entityId: string;
+  name: string;
+  i9Mode: "self_managed" | "wingspan_managed" | "hybrid";
+  requirements: Array<{ type: string; label?: string; required?: boolean }>;
+  createdAt: string;
 }
 
 interface Payable {
@@ -87,7 +97,7 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
   const entity = await safeGet<Entity>(`/v1/entities/${params.id}`);
   if (!entity) notFound();
 
-  const [payablesRes, disbursementsRes, provisioning, worksitesRes] = await Promise.all([
+  const [payablesRes, disbursementsRes, provisioning, worksitesRes, templatesRes] = await Promise.all([
     safeGet<{ data: Payable[] }>(`/v1/payables?entityId=${params.id}&limit=10`),
     safeGet<{ data: Disbursement[] }>(`/v1/disbursements?entityId=${params.id}&limit=10`),
     entity.status === "pending"
@@ -96,11 +106,15 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
     entity.taxType === "w2"
       ? safeGet<{ data: Worksite[] }>(`/v1/worksites?entityId=${params.id}`)
       : null,
+    entity.taxType === "w2"
+      ? safeGet<{ data: EngagementTemplate[] }>(`/v1/engagement-templates?entityId=${params.id}`)
+      : null,
   ]);
 
   const payables = payablesRes?.data ?? [];
   const disbursements = disbursementsRes?.data ?? [];
   const worksitesList = worksitesRes?.data ?? [];
+  const templatesList = templatesRes?.data ?? [];
 
   const pendingTotalCents = payables
     .filter((p) => p.status === "pending")
@@ -165,11 +179,14 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
         )}
 
         {entity.taxType === "w2" && (
-          <WorksitesCard
-            entityId={entity.id}
-            entityState={entity.state}
-            worksites={worksitesList}
-          />
+          <>
+            <WorksitesCard
+              entityId={entity.id}
+              entityState={entity.state}
+              worksites={worksitesList}
+            />
+            <EngagementTemplatesCard entityId={entity.id} templates={templatesList} />
+          </>
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

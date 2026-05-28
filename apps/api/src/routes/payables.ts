@@ -116,6 +116,14 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
       `No engagement found for worker ${body.workerId} + entity ${body.entityId}. Call POST /v1/workers/:id/engagements first.`,
     );
   }
+  if (engagement.type === "employee") {
+    throw new ValidationError(
+      "Worker has a W-2 (employee) engagement on this entity — payables aren't used for W-2. Capture hours via POST /v1/work-logs and run a payroll instead.",
+    );
+  }
+  if (!engagement.wingspanPayerPayeeEngagementId) {
+    throw new Error("1099 engagement is missing wingspanPayerPayeeEngagementId — data is inconsistent");
+  }
 
   // Resolve env-scoped entity child user (each entity belongs to one env now)
   const [entity] = await db

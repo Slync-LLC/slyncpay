@@ -57,6 +57,13 @@
       "when": 1779970000000,
       "tag": "0007_phase2_w2",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779990000000,
+      "tag": "0008_v3_engagement_ids",
+      "breakpoints": true
     }
   ]
 }

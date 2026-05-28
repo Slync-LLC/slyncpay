@@ -2,12 +2,20 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, desc, count, inArray } from "@slyncpay/db";
-import { db, workers, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys } from "@slyncpay/db";
+import { db, workers, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys, worksites, engagementTemplates } from "@slyncpay/db";
 import { createHash } from "crypto";
 import { encrypt as encryptSecret, decrypt as decryptSecret, ssnLast4 } from "../lib/crypto.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
-import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
+import {
+  getWingspanClient,
+  getWingspanV3Client,
+  wingspanUiBaseUrl,
+  hasSandboxConfig,
+  hasV3Config,
+  entityChildUserId,
+  entityV3AccountId,
+} from "../lib/wingspan.js";
 import { repairWorkerWingspanUserId, syncWorkerToWingspan } from "../lib/worker-repair.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
@@ -421,10 +429,28 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
 
 // ─── Engagements (worker ↔ entity) ────────────────────────────────────────
 
-workerRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.string().uuid() })), async (c) => {
+const engagementAttachSchema = z.object({
+  entityId: z.string().uuid(),
+  // W-2 only — required when the target entity is W-2.
+  engagementTemplateId: z.string().uuid().optional(),
+  worksiteId: z.string().uuid().optional(),
+  jobTitle: z.string().max(200).optional(),
+  compensation: z
+    .object({
+      type: z.enum(["Hourly", "Salary"]),
+      amount: z.number().positive(),
+      frequency: z.enum(["Hour", "Year"]),
+    })
+    .optional(),
+  paySchedule: z.enum(["Weekly", "Biweekly", "SemiMonthly", "Monthly"]).optional(),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "startDate must be YYYY-MM-DD").optional(),
+});
+
+workerRoutes.post("/:id/engagements", zValidator("json", engagementAttachSchema), async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id: workerId } = c.req.param();
-  const { entityId } = c.req.valid("json");
+  const body = c.req.valid("json");
+  const { entityId } = body;
 
   // Validate worker belongs to tenant (in this env)
   const [worker] = await db
@@ -485,19 +511,157 @@ workerRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.
     );
   }
 
-  // W-2 (Employee) engagements run on Wingspan's V3 API which we haven't wired
-  // up yet. Surface a clear stub error so the caller knows the entity is
-  // recorded but no engagement was created.
+  // W-2 (Employee) engagements run through Wingspan V3.
   if (engagementType === "employee") {
-    return c.json(
-      {
-        error: "w2_not_implemented",
-        message:
-          "W-2 payroll integration is in progress. The entity is recorded but no engagement can be " +
-          "created until the W-2 Wingspan V3 flow ships. See /dashboard/developer/docs for status.",
-      },
-      501,
-    );
+    if (!hasV3Config(environment)) {
+      return c.json(
+        {
+          error: "v3_not_configured",
+          message: `Wingspan V3 (W-2) is not configured for ${environment}. Set WINGSPAN_${environment === "test" ? "SANDBOX" : "LIVE"}_V3_API_TOKEN and ..._V3_PARENT_ACCOUNT_ID on the API service.`,
+        },
+        503,
+      );
+    }
+    if (!body.engagementTemplateId || !body.worksiteId || !body.jobTitle || !body.compensation || !body.paySchedule || !body.startDate) {
+      throw new ValidationError(
+        "W-2 engagement requires engagementTemplateId, worksiteId, jobTitle, compensation, paySchedule, startDate.",
+      );
+    }
+    const v3AccountId = entityV3AccountId(entity, environment);
+    if (!v3AccountId) {
+      return c.json(
+        {
+          error: "v3_account_not_provisioned",
+          message: "Entity has no V3 (W-2) child account ID yet. Provision the V3 account first.",
+        },
+        422,
+      );
+    }
+
+    // Idempotent: return existing engagement if one already exists.
+    const [existing] = await db
+      .select()
+      .from(engagements)
+      .where(
+        and(
+          eq(engagements.workerId, workerId),
+          eq(engagements.entityId, entityId),
+          eq(engagements.environment, environment),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      return c.json(toEngagementDTO(existing, { entityName: entity.name }));
+    }
+
+    // Validate the engagement template + worksite belong to this entity.
+    const [templateRow] = await db
+      .select()
+      .from(engagementTemplates)
+      .where(
+        and(
+          eq(engagementTemplates.id, body.engagementTemplateId),
+          eq(engagementTemplates.entityId, entityId),
+          eq(engagementTemplates.environment, environment),
+        ),
+      )
+      .limit(1);
+    if (!templateRow) throw new ValidationError("engagementTemplateId is not a template for this entity.");
+
+    const [worksiteRow] = await db
+      .select()
+      .from(worksites)
+      .where(
+        and(
+          eq(worksites.id, body.worksiteId),
+          eq(worksites.entityId, entityId),
+          eq(worksites.environment, environment),
+        ),
+      )
+      .limit(1);
+    if (!worksiteRow) throw new ValidationError("worksiteId is not a worksite for this entity.");
+
+    const v3 = getWingspanV3Client(environment).withAccount(v3AccountId);
+
+    // V3 payee is per-(payer × payee), so each entity has its own. Create one
+    // here using the worker's name + email + (optionally) address from w9 seed.
+    let v3PayeeId: string;
+    try {
+      const w9 = (worker.w9SeededData ?? {}) as Record<string, string | undefined>;
+      const created = await v3.createPayee({
+        firstName: worker.firstName ?? "",
+        lastName: worker.lastName ?? "",
+        email: worker.email,
+        ...(w9["phone"] ? { phone: w9["phone"] } : {}),
+        ...(w9["dateOfBirth"] ? { dateOfBirth: w9["dateOfBirth"] } : {}),
+        ...(w9["addressLine1"]
+          ? {
+              address: {
+                line1: w9["addressLine1"],
+                ...(w9["addressLine2"] ? { line2: w9["addressLine2"] } : {}),
+                city: w9["city"] ?? "",
+                state: w9["state"] ?? "",
+                postalCode: w9["postalCode"] ?? "",
+                country: w9["country"] ?? "US",
+              },
+            }
+          : {}),
+        externalId: worker.externalId,
+      });
+      v3PayeeId = created.payeeId;
+    } catch (err) {
+      console.error(`[w2-engagement] V3 createPayee failed for worker ${worker.id}:`, (err as Error).message);
+      throw err;
+    }
+
+    let v3EngagementId: string;
+    try {
+      const eng = await v3.createEmployeeEngagement(v3PayeeId, {
+        engagementTemplateId: templateRow.wingspanTemplateId ?? templateRow.id,
+        worksiteId: worksiteRow.wingspanWorksiteId ?? worksiteRow.id,
+        jobTitle: body.jobTitle,
+        compensation: body.compensation,
+        paySchedule: body.paySchedule,
+        startDate: body.startDate,
+      });
+      v3EngagementId = eng.engagementId;
+    } catch (err) {
+      console.error(`[w2-engagement] V3 createEmployeeEngagement failed for payee ${v3PayeeId}:`, (err as Error).message);
+      throw err;
+    }
+
+    const [engagement] = await db
+      .insert(engagements)
+      .values({
+        tenantId,
+        workerId,
+        entityId,
+        type: "employee",
+        status: "active",
+        wingspanV3PayeeId: v3PayeeId,
+        wingspanV3EngagementId: v3EngagementId,
+        engagementTemplateId: body.engagementTemplateId,
+        worksiteId: body.worksiteId,
+        compensation: body.compensation,
+        paySchedule: body.paySchedule,
+        jobTitle: body.jobTitle,
+        environment,
+      })
+      .returning();
+    if (!engagement) throw new Error("Failed to save engagement");
+
+    await logAudit({
+      tenantId,
+      actorType: "api_key",
+      actorId: c.var.auth.apiKeyId,
+      action: "worker.engagement.created",
+      resourceType: "engagement",
+      resourceId: engagement.id,
+      metadata: { workerId, entityId, entityName: entity.name, type: "employee" },
+      ipAddress: clientIp(c),
+    });
+
+    return c.json(toEngagementDTO(engagement, { entityName: entity.name }), 201);
   }
 
   const childUserId = entityChildUserId(entity, environment);
@@ -581,6 +745,62 @@ workerRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.
   });
 
   return c.json(toEngagementDTO(engagement, { entityName: entity.name }), 201);
+});
+
+// PATCH /v1/workers/:id/engagements/:engagementId/tax-elections — proxy to
+// Wingspan V3. Only meaningful for W-2 engagements.
+workerRoutes.patch("/:id/engagements/:engagementId/tax-elections", async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id: workerId, engagementId } = c.req.param();
+  const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+  const [engagement] = await db
+    .select()
+    .from(engagements)
+    .where(
+      and(
+        eq(engagements.id, engagementId),
+        eq(engagements.workerId, workerId),
+        eq(engagements.tenantId, tenantId),
+        eq(engagements.environment, environment),
+      ),
+    )
+    .limit(1);
+  if (!engagement) throw new NotFoundError("Engagement");
+  if (engagement.type !== "employee") {
+    throw new ValidationError("Tax elections are only collected on W-2 engagements.");
+  }
+  if (!engagement.wingspanV3PayeeId || !engagement.wingspanV3EngagementId) {
+    throw new ValidationError("Engagement is missing V3 IDs.");
+  }
+  if (!hasV3Config(environment)) {
+    return c.json({ error: "v3_not_configured", message: "Wingspan V3 is not configured." }, 503);
+  }
+
+  const [entity] = await db
+    .select()
+    .from(tenantEntities)
+    .where(eq(tenantEntities.id, engagement.entityId))
+    .limit(1);
+  const v3AccountId = entity ? entityV3AccountId(entity, environment) : null;
+  if (!v3AccountId) return c.json({ error: "v3_account_not_provisioned" }, 422);
+
+  await getWingspanV3Client(environment)
+    .withAccount(v3AccountId)
+    .patchTaxElections(engagement.wingspanV3PayeeId, engagement.wingspanV3EngagementId, body);
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "worker.tax_elections.updated",
+    resourceType: "engagement",
+    resourceId: engagementId,
+    metadata: { workerId },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({ ok: true });
 });
 
 workerRoutes.get("/:id/engagements", async (c) => {
@@ -809,6 +1029,9 @@ workerRoutes.post(
 
     // 1. Create payable in the payment processor (env-specific child)
     const wingspan = getWingspanClient(environment).withChild(childUserId);
+    if (!engagement.wingspanPayerPayeeEngagementId) {
+      throw new Error("1099 engagement is missing wingspanPayerPayeeEngagementId — data is inconsistent");
+    }
     const processorPayable = await wingspan.createPayable({
       collaboratorId: engagement.wingspanPayerPayeeEngagementId,
       dueDate,
