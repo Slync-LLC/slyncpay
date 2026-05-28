@@ -209,6 +209,14 @@ export class WingspanClient {
     });
   }
 
+  /**
+   * Fetch a single payable's current state. Returns the raw response — most
+   * useful fields are `status` and `payableId`.
+   */
+  getPayable(payableId: string): Promise<{ payableId: string; status: string; [k: string]: unknown }> {
+    return this.request("GET", `/payments/payable/${payableId}`);
+  }
+
   // ─── Disbursements ───────────────────────────────────────────────────────────
 
   /**
