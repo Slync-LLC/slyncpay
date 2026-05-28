@@ -4,13 +4,20 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { createContractor } from "../actions";
+import { createWorker } from "../actions";
 import { US_STATES, maskSsn, maskPhone, maskZip } from "@/lib/masks";
 
-export function NewContractorForm({ entities }: { entities: Array<{ id: string; name: string }> }) {
+export function NewWorkerForm({
+  entities,
+}: {
+  entities: Array<{ id: string; name: string; taxType: "1099" | "w2" }>;
+}) {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [classification, setClassification] = useState<"1099" | "w2">("1099");
+  const visibleEntities = entities.filter((e) => e.taxType === classification);
 
   const [externalId, setExternalId] = useState("");
   const [email, setEmail] = useState("");
@@ -27,7 +34,12 @@ export function NewContractorForm({ entities }: { entities: Array<{ id: string; 
   const [stateVal, setStateVal] = useState("");
   const [postalCode, setPostalCode] = useState("");
   const [country, setCountry] = useState("US");
-  const [entityId, setEntityId] = useState(entities[0]?.id ?? "");
+  const [entityId, setEntityId] = useState(visibleEntities[0]?.id ?? "");
+
+  // When classification flips, reset the selected entity to one matching the new filter.
+  if (entityId && !visibleEntities.find((e) => e.id === entityId)) {
+    setEntityId(visibleEntities[0]?.id ?? "");
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,7 +69,7 @@ export function NewContractorForm({ entities }: { entities: Array<{ id: string; 
     if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.replace(/\D/g, "").slice(0, 5);
 
     setSubmitting(true);
-    const result = await createContractor({
+    const result = await createWorker({
       externalId: externalId.trim(),
       email: email.trim().toLowerCase(),
       firstName: firstName.trim(),
@@ -71,19 +83,19 @@ export function NewContractorForm({ entities }: { entities: Array<{ id: string; 
       setSubmitting(false);
       return;
     }
-    router.push(`/dashboard/contractors/${result.contractorId}`);
+    router.push(`/dashboard/workers/${result.workerId}`);
   }
 
   return (
     <div className="p-8 max-w-2xl">
-      <Link href="/dashboard/contractors" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
+      <Link href="/dashboard/workers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
         <ChevronLeft className="h-4 w-4" />
-        Contractors
+        Workers
       </Link>
 
-      <h1 className="text-2xl font-bold mb-1">Add contractor</h1>
+      <h1 className="text-2xl font-bold mb-1">Add worker</h1>
       <p className="text-sm text-muted-foreground mb-8">
-        Fill in as much as you have — the values seed the contractor&apos;s Wingspan onboarding form so they just confirm and add payout.
+        Fill in as much as you have — the values seed the worker&apos;s Wingspan onboarding form so they just confirm and add payout.
       </p>
 
       <form onSubmit={onSubmit} className="space-y-6">
@@ -234,14 +246,58 @@ export function NewContractorForm({ entities }: { entities: Array<{ id: string; 
 
         <section className="space-y-4">
           <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Engagement</div>
-          <Field label="Entity" required hint="The legal entity that will pay this contractor.">
+
+          <Field label="Worker classification" required hint="Determines which entities can pay this worker. Locked once an engagement is created.">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="flex items-start gap-2 rounded-md border border-border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="radio"
+                  name="classification"
+                  value="1099"
+                  checked={classification === "1099"}
+                  onChange={() => setClassification("1099")}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium">1099 Contractor</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">Independent contractor; gets a 1099-NEC.</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 rounded-md border border-border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+                <input
+                  type="radio"
+                  name="classification"
+                  value="w2"
+                  checked={classification === "w2"}
+                  onChange={() => setClassification("w2")}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="block text-sm font-medium">W-2 Employee</span>
+                  <span className="block text-xs text-muted-foreground mt-0.5">Employee payroll; gets a W-2. Coming soon.</span>
+                </span>
+              </label>
+            </div>
+          </Field>
+
+          {classification === "w2" && (
+            <div className="rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-xs text-orange-800">
+              W-2 payroll is being wired up — you can record the worker against a W-2 entity now, but payments will be unavailable until the W-2 runtime ships.
+            </div>
+          )}
+
+          <Field label="Entity" required hint="Filtered by the classification above.">
             <select
               value={entityId}
               onChange={(e) => setEntityId(e.target.value)}
               className="input"
             >
-              {entities.length === 0 && <option value="">No active entities</option>}
-              {entities.map((e) => (
+              {visibleEntities.length === 0 && (
+                <option value="">
+                  No active {classification === "w2" ? "W-2" : "1099"} entities — add one in Entities first
+                </option>
+              )}
+              {visibleEntities.map((e) => (
                 <option key={e.id} value={e.id}>{e.name}</option>
               ))}
             </select>
@@ -258,10 +314,10 @@ export function NewContractorForm({ entities }: { entities: Array<{ id: string; 
             disabled={submitting}
             className="bg-primary text-primary-foreground px-5 py-2 rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {submitting ? "Adding…" : "Add contractor"}
+            {submitting ? "Adding…" : "Add worker"}
           </button>
           <Link
-            href="/dashboard/contractors"
+            href="/dashboard/workers"
             className="px-5 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
           >
             Cancel

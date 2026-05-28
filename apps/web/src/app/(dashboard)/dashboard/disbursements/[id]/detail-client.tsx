@@ -16,7 +16,7 @@ const STATUS_STYLES: Record<string, string> = {
   cancelled: "bg-gray-50 text-gray-500",
 };
 
-function contractorLabel(c: PayableInDisbursement["contractor"]): string {
+function workerLabel(c: PayableInDisbursement["worker"]): string {
   if (!c) return "—";
   const name = [c.firstName, c.lastName].filter(Boolean).join(" ").trim();
   return name.length > 0 ? name : c.email;
@@ -133,7 +133,7 @@ export function DisbursementDetailClient({
             <thead>
               <tr className="border-b border-border bg-muted/20">
                 <th className="text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Contractor
+                  Worker
                 </th>
                 <th className="text-left px-5 py-2.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   Reference
@@ -150,9 +150,9 @@ export function DisbursementDetailClient({
               {detail.payables.map((p) => (
                 <tr key={p.id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-3 text-sm">
-                    <div className="font-medium">{contractorLabel(p.contractor)}</div>
-                    {p.contractor?.email && (
-                      <div className="text-xs text-muted-foreground">{p.contractor.email}</div>
+                    <div className="font-medium">{workerLabel(p.worker)}</div>
+                    {p.worker?.email && (
+                      <div className="text-xs text-muted-foreground">{p.worker.email}</div>
                     )}
                   </td>
                   <td className="px-5 py-3 text-sm font-mono text-muted-foreground">

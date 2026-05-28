@@ -6,7 +6,7 @@ import {
   db,
   admins,
   tenants,
-  contractors,
+  workers,
   payables,
   disbursements,
   tenantEntities,
@@ -31,7 +31,7 @@ import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
 import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
-import { repairContractorWingspanUserId, syncContractorToWingspan } from "../lib/contractor-repair.js";
+import { repairWorkerWingspanUserId, syncWorkerToWingspan } from "../lib/worker-repair.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -208,10 +208,10 @@ adminRoutes.post("/logout", async (c) => {
 // ─── Platform stats ───────────────────────────────────────────────────────────
 
 adminRoutes.get("/stats", async (c) => {
-  const [tenantRows, [contractorCount], [payableStats], [disbursementStats], [entityCount]] =
+  const [tenantRows, [workerCount], [payableStats], [disbursementStats], [entityCount]] =
     await Promise.all([
       db.select({ status: tenants.status, n: count() }).from(tenants).groupBy(tenants.status),
-      db.select({ n: count() }).from(contractors),
+      db.select({ n: count() }).from(workers),
       db.select({ n: count(), totalCents: sum(payables.amountCents), feeCents: sum(payables.feeAmountCents) }).from(payables),
       db
         .select({ n: count(), totalCents: sum(disbursements.totalAmountCents) })
@@ -251,7 +251,7 @@ adminRoutes.get("/stats", async (c) => {
       cancelled: byStatus["cancelled"] ?? 0,
       newThisMonth: Number(newThisMonth?.n ?? 0),
     },
-    contractors: Number(contractorCount?.n ?? 0),
+    workers: Number(workerCount?.n ?? 0),
     entities: Number(entityCount?.n ?? 0),
     payables: {
       count: Number(payableStats?.n ?? 0),
@@ -286,12 +286,12 @@ adminRoutes.get("/tenants", async (c) => {
   // Attach aggregate counts in a second pass (no lateral join needed for small N)
   const tenantIds = rows.map((r) => r.id);
 
-  const [contractorCounts, payableCounts, disbursementCounts] = await Promise.all([
+  const [workerCounts, payableCounts, disbursementCounts] = await Promise.all([
     tenantIds.length
       ? db
-          .select({ tenantId: contractors.tenantId, n: count() })
-          .from(contractors)
-          .groupBy(contractors.tenantId)
+          .select({ tenantId: workers.tenantId, n: count() })
+          .from(workers)
+          .groupBy(workers.tenantId)
       : [],
     tenantIds.length
       ? db
@@ -307,14 +307,14 @@ adminRoutes.get("/tenants", async (c) => {
       : [],
   ]);
 
-  const contractorMap = Object.fromEntries(contractorCounts.map((r) => [r.tenantId, Number(r.n)]));
+  const workerMap = Object.fromEntries(workerCounts.map((r) => [r.tenantId, Number(r.n)]));
   const payableMap = Object.fromEntries(payableCounts.map((r) => [r.tenantId, { n: Number(r.n), totalCents: Number(r.totalCents ?? 0) }]));
   const disbMap = Object.fromEntries(disbursementCounts.map((r) => [r.tenantId, Number(r.n)]));
 
   return c.json(
     rows.map((r) => ({
       ...r,
-      contractorsCount: contractorMap[r.id] ?? 0,
+      workersCount: workerMap[r.id] ?? 0,
       payablesCount: payableMap[r.id]?.n ?? 0,
       payablesTotalCents: payableMap[r.id]?.totalCents ?? 0,
       disbursementsCount: disbMap[r.id] ?? 0,
@@ -329,13 +329,13 @@ adminRoutes.get("/tenants/:id", async (c) => {
   if (!tenant) throw new ApiError(404, "not_found", "Tenant not found");
 
   const [
-    [contractorsCount],
+    [workersCount],
     [payablesStats],
     [disbursementsCount],
     [entitiesCount],
     [apiKeysCount],
   ] = await Promise.all([
-    db.select({ n: count() }).from(contractors).where(eq(contractors.tenantId, id)),
+    db.select({ n: count() }).from(workers).where(eq(workers.tenantId, id)),
     db
       .select({ n: count(), totalCents: sum(payables.amountCents), feeCents: sum(payables.feeAmountCents) })
       .from(payables)
@@ -349,7 +349,7 @@ adminRoutes.get("/tenants/:id", async (c) => {
     ...tenant,
     passwordHash: undefined,
     stats: {
-      contractorsCount: Number(contractorsCount?.n ?? 0),
+      workersCount: Number(workersCount?.n ?? 0),
       payablesCount: Number(payablesStats?.n ?? 0),
       payablesTotalCents: Number(payablesStats?.totalCents ?? 0),
       feesCollectedCents: Number(payablesStats?.feeCents ?? 0),
@@ -503,8 +503,8 @@ adminRoutes.delete("/tenants/:id", async (c) => {
   const { id } = c.req.param();
   const admin = c.get("admin");
 
-  const [[contractorCount], [payableCount], [disbursementCount], [entityCount], [engagementCount]] = await Promise.all([
-    db.select({ n: count() }).from(contractors).where(eq(contractors.tenantId, id)),
+  const [[workerCount], [payableCount], [disbursementCount], [entityCount], [engagementCount]] = await Promise.all([
+    db.select({ n: count() }).from(workers).where(eq(workers.tenantId, id)),
     db.select({ n: count() }).from(payables).where(eq(payables.tenantId, id)),
     db.select({ n: count() }).from(disbursements).where(eq(disbursements.tenantId, id)),
     db.select({ n: count() }).from(tenantEntities).where(eq(tenantEntities.tenantId, id)),
@@ -512,7 +512,7 @@ adminRoutes.delete("/tenants/:id", async (c) => {
   ]);
 
   const dataCount =
-    Number(contractorCount?.n ?? 0) +
+    Number(workerCount?.n ?? 0) +
     Number(payableCount?.n ?? 0) +
     Number(disbursementCount?.n ?? 0) +
     Number(entityCount?.n ?? 0) +
@@ -522,7 +522,7 @@ adminRoutes.delete("/tenants/:id", async (c) => {
     throw new ApiError(
       400,
       "has_data",
-      "Cannot hard-delete tenant with contractors, payables, disbursements, engagements, or entities. Set status to cancelled instead.",
+      "Cannot hard-delete tenant with workers, payables, disbursements, engagements, or entities. Set status to cancelled instead.",
     );
   }
 
@@ -585,40 +585,40 @@ adminRoutes.get("/tenants/:id/api-keys", async (c) => {
   return c.json(rows);
 });
 
-adminRoutes.get("/tenants/:id/contractors", async (c) => {
+adminRoutes.get("/tenants/:id/workers", async (c) => {
   const { id } = c.req.param();
   const rows = await db
     .select()
-    .from(contractors)
-    .where(eq(contractors.tenantId, id))
-    .orderBy(desc(contractors.createdAt));
+    .from(workers)
+    .where(eq(workers.tenantId, id))
+    .orderBy(desc(workers.createdAt));
 
   return c.json(rows);
 });
 
-adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
+adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
   const { id } = c.req.param();
-  const [contractor] = await db
+  const [worker] = await db
     .select()
-    .from(contractors)
-    .where(eq(contractors.id, id))
+    .from(workers)
+    .where(eq(workers.id, id))
     .limit(1);
 
-  if (!contractor) throw new ApiError(404, "not_found", "Contractor not found");
+  if (!worker) throw new ApiError(404, "not_found", "Worker not found");
 
-  const env: "live" | "test" = contractor.environment === "test" ? "test" : "live";
+  const env: "live" | "test" = worker.environment === "test" ? "test" : "live";
 
-  let userId = contractor.wingspanUserId;
+  let userId = worker.wingspanUserId;
   if (!userId) {
-    userId = await repairContractorWingspanUserId(contractor, env);
+    userId = await repairWorkerWingspanUserId(worker, env);
   }
 
   if (!userId) {
-    throw new ApiError(422, "not_ready", "Contractor does not have an onboarding account yet");
+    throw new ApiError(422, "not_ready", "Worker does not have an onboarding account yet");
   }
 
-  if (contractor.wingspanPayeeBucketPayeeId) {
-    await syncContractorToWingspan(contractor, env, contractor.wingspanPayeeBucketPayeeId);
+  if (worker.wingspanPayeeBucketPayeeId) {
+    await syncWorkerToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId);
   }
 
   const session = await getWingspanClient(env).getSessionToken(userId);
@@ -627,7 +627,7 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   const url = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
 
-  return c.json({ url, expiresAt, environment: env, onboardingStatus: contractor.onboardingStatus });
+  return c.json({ url, expiresAt, environment: env, onboardingStatus: worker.onboardingStatus });
 });
 
 adminRoutes.get("/tenants/:id/payables", async (c) => {

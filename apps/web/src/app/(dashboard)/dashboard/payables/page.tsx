@@ -6,7 +6,7 @@ import { apiServerGet } from "@/lib/api-server";
 interface Payable {
   id: string;
   entityId: string;
-  contractorId: string;
+  workerId: string;
   amountCents: number;
   status: string;
   externalReferenceId: string | null;
@@ -116,7 +116,7 @@ export default async function PayablesPage({ searchParams }: { searchParams: { s
             <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
             <h2 className="text-base font-semibold mb-1">No payables yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              Create a payable to schedule a payment to one of your contractors.
+              Create a payable to schedule a payment to one of your workers.
             </p>
             <Link
               href="/dashboard/payables/new"

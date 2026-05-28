@@ -21,6 +21,7 @@ const schema = z.object({
   name: z.string().min(1, "Required"),
   ein: z.string().regex(/^\d{2}-\d{7}$/, "Format: XX-XXXXXXX"),
   state: z.string().min(2, "Required"),
+  taxType: z.enum(["1099", "w2"]),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -34,12 +35,12 @@ export default function NewEntityPage() {
     register,
     handleSubmit,
     formState: { errors },
-  } = useForm<FormValues>({ resolver: zodResolver(schema) });
+  } = useForm<FormValues>({ resolver: zodResolver(schema), defaultValues: { taxType: "1099" } });
 
   async function onSubmit(values: FormValues) {
     setSubmitting(true);
     setError(null);
-    const result = await createEntity({ name: values.name, ein: values.ein, state: values.state });
+    const result = await createEntity({ name: values.name, ein: values.ein, state: values.state, taxType: values.taxType });
     if (!result.ok) {
       setError(result.error);
       setSubmitting(false);
@@ -93,6 +94,30 @@ export default function NewEntityPage() {
             {US_STATES.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
           {errors.state && <p className="text-xs text-destructive mt-1">{errors.state.message}</p>}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-2">Worker classification</label>
+          <p className="text-xs text-muted-foreground mb-2">
+            1099 entities pay independent contractors. W-2 entities run employee payroll. Can&apos;t be changed later.
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="flex items-start gap-2 rounded-md border border-border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+              <input type="radio" value="1099" {...register("taxType")} className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium">1099 Contractor</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">Independent contractors. 1099-NEC at year-end.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 rounded-md border border-border p-3 cursor-pointer hover:bg-muted/30 transition-colors">
+              <input type="radio" value="w2" {...register("taxType")} className="mt-0.5" />
+              <span>
+                <span className="block text-sm font-medium">W-2 Employee</span>
+                <span className="block text-xs text-muted-foreground mt-0.5">Employee payroll. W-2 at year-end. Coming soon.</span>
+              </span>
+            </label>
+          </div>
+          {errors.taxType && <p className="text-xs text-destructive mt-1">{errors.taxType.message}</p>}
         </div>
 
         {error && (

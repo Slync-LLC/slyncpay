@@ -5,10 +5,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ExternalLink, Copy, Check, Mail, Link2, Send, Plus, Monitor, ChevronDown, ChevronUp, Pencil, Archive, RotateCcw } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { attachContractorToEntity, payContractorNow, updateContractor } from "../actions";
+import { attachWorkerToEntity, payWorkerNow, updateWorker } from "../actions";
 import { US_STATES, maskSsn, maskPhone, maskZip } from "@/lib/masks";
 
-type Tab = "overview" | "payments" | "entities" | "1099s";
+type Tab = "overview" | "payments" | "entities" | "tax-forms";
 
 interface W9Prefill {
   middleName?: string | null;
@@ -23,7 +23,7 @@ interface W9Prefill {
   postalCode?: string | null;
 }
 
-interface Contractor {
+interface Worker {
   id: string;
   externalId: string;
   email: string;
@@ -104,13 +104,13 @@ function CopyButton({ text }: { text: string }) {
 function OnboardingLinkCard({
   url,
   expiresAt,
-  contractorEmail,
-  contractorName,
+  workerEmail,
+  workerName,
 }: {
   url: string;
   expiresAt: string | null;
-  contractorEmail: string;
-  contractorName: string;
+  workerEmail: string;
+  workerName: string;
 }) {
   const [copied, setCopied] = useState(false);
   const expiresLabel = expiresAt ? new Date(expiresAt).toLocaleString() : null;
@@ -121,11 +121,11 @@ function OnboardingLinkCard({
     setTimeout(() => setCopied(false), 1500);
   }
 
-  const emailSubject = encodeURIComponent("Finish setting up your contractor account");
+  const emailSubject = encodeURIComponent("Finish setting up your worker account");
   const emailBody = encodeURIComponent(
-    `Hi ${contractorName},\n\nPlease finish onboarding by visiting the link below. It expires in 60 minutes — let me know if you need a fresh one.\n\n${url}\n\nThanks!`,
+    `Hi ${workerName},\n\nPlease finish onboarding by visiting the link below. It expires in 60 minutes — let me know if you need a fresh one.\n\n${url}\n\nThanks!`,
   );
-  const mailto = `mailto:${contractorEmail}?subject=${emailSubject}&body=${emailBody}`;
+  const mailto = `mailto:${workerEmail}?subject=${emailSubject}&body=${emailBody}`;
 
   return (
     <div className="bg-white rounded-xl border border-border p-5">
@@ -136,7 +136,7 @@ function OnboardingLinkCard({
             Onboarding link
           </h2>
           <p className="text-xs text-muted-foreground mt-1">
-            Send this to {contractorName} so they can finish setting up tax info and payout.
+            Send this to {workerName} so they can finish setting up tax info and payout.
             {expiresLabel && <> Expires {expiresLabel}.</>}
           </p>
         </div>
@@ -183,15 +183,15 @@ function OnboardingLinkCard({
   );
 }
 
-export function ContractorDetailClient(props: {
-  contractor: Contractor;
+export function WorkerDetailClient(props: {
+  worker: Worker;
   engagements: Engagement[];
   entities: Entity[];
   payables: Payable[];
   onboardingUrl: string | null;
   onboardingExpiresAt: string | null;
 }) {
-  const { contractor: c, engagements, entities, payables, onboardingUrl, onboardingExpiresAt } = props;
+  const { worker: c, engagements, entities, payables, onboardingUrl, onboardingExpiresAt } = props;
   const [tab, setTab] = useState<Tab>("overview");
   const [attachOpen, setAttachOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -204,7 +204,7 @@ export function ContractorDetailClient(props: {
   function toggleArchive() {
     startArchive(async () => {
       const next: "active" | "inactive" = isArchived ? "active" : "inactive";
-      const res = await updateContractor(c.id, { onboardingStatus: next });
+      const res = await updateWorker(c.id, { onboardingStatus: next });
       if (res.ok) router.refresh();
       else alert(res.error);
     });
@@ -220,14 +220,14 @@ export function ContractorDetailClient(props: {
     { id: "overview", label: "Overview" },
     { id: "payments", label: "Payments" },
     { id: "entities", label: "Entities" },
-    { id: "1099s", label: "1099s" },
+    { id: "tax-forms", label: "Tax Forms" },
   ];
 
   return (
     <div className="p-8 max-w-4xl">
-      <Link href="/dashboard/contractors" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
+      <Link href="/dashboard/workers" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
         <ChevronLeft className="h-4 w-4" />
-        Contractors
+        Workers
       </Link>
 
       <div className="flex items-start justify-between mb-6">
@@ -303,8 +303,8 @@ export function ContractorDetailClient(props: {
             <OnboardingLinkCard
               url={onboardingUrl}
               expiresAt={onboardingExpiresAt}
-              contractorEmail={c.email}
-              contractorName={fullName}
+              workerEmail={c.email}
+              workerName={fullName}
             />
           )}
 
@@ -395,7 +395,7 @@ export function ContractorDetailClient(props: {
             </p>
             {c.onboardingStatus !== "active" ? (
               <span className="text-xs text-muted-foreground">
-                Contractor must complete onboarding before payments are allowed.
+                Worker must complete onboarding before payments are allowed.
               </span>
             ) : engagements.length > 0 ? (
               <button
@@ -460,7 +460,7 @@ export function ContractorDetailClient(props: {
         <div>
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm text-muted-foreground">
-              Attach this contractor to one of your entities to pay them on its behalf.
+              Attach this worker to one of your entities to pay them on its behalf.
             </p>
             {availableEntities.length > 0 && (
               <button
@@ -501,15 +501,15 @@ export function ContractorDetailClient(props: {
         </div>
       )}
 
-      {tab === "1099s" && (
+      {tab === "tax-forms" && (
         <div className="bg-white rounded-xl border border-border p-8 text-center text-sm text-muted-foreground">
-          No 1099s filed yet. 1099-NEC forms are generated automatically at year-end for contractors earning $600+.
+          No tax forms filed yet. 1099-NEC for contractors and W-2 for employees are generated automatically at year-end.
         </div>
       )}
 
       {attachOpen && (
         <AttachEntityModal
-          contractorId={c.id}
+          workerId={c.id}
           available={availableEntities}
           onClose={() => setAttachOpen(false)}
         />
@@ -517,15 +517,15 @@ export function ContractorDetailClient(props: {
 
       {payOpen && (
         <PayNowModal
-          contractor={c}
+          worker={c}
           engagements={engagements}
           onClose={() => setPayOpen(false)}
         />
       )}
 
       {editOpen && (
-        <EditContractorModal
-          contractor={c}
+        <EditWorkerModal
+          worker={c}
           onClose={() => setEditOpen(false)}
         />
       )}
@@ -533,18 +533,18 @@ export function ContractorDetailClient(props: {
   );
 }
 
-function EditContractorModal({
-  contractor,
+function EditWorkerModal({
+  worker,
   onClose,
 }: {
-  contractor: Contractor;
+  worker: Worker;
   onClose: () => void;
 }) {
   const router = useRouter();
-  const seed = contractor.w9SeededData ?? {};
-  const [firstName, setFirstName] = useState(contractor.firstName ?? "");
+  const seed = worker.w9SeededData ?? {};
+  const [firstName, setFirstName] = useState(worker.firstName ?? "");
   const [middleName, setMiddleName] = useState(seed.middleName ?? "");
-  const [lastName, setLastName] = useState(contractor.lastName ?? "");
+  const [lastName, setLastName] = useState(worker.lastName ?? "");
   const [jobTitle, setJobTitle] = useState(seed.jobTitle ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(seed.dateOfBirth ?? "");
   const [phone, setPhone] = useState(seed.phone ? maskPhone(seed.phone) : "");
@@ -574,7 +574,7 @@ function EditContractorModal({
       if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.replace(/\D/g, "").slice(0, 5);
 
       const ssnDigits = ssn.replace(/\D/g, "");
-      const payload: Parameters<typeof updateContractor>[1] = {
+      const payload: Parameters<typeof updateWorker>[1] = {
         firstName: firstName.trim() || null,
         lastName: lastName.trim() || null,
         ...(Object.keys(w9Prefill).length ? { w9Prefill } : {}),
@@ -586,7 +586,7 @@ function EditContractorModal({
         return;
       }
 
-      const res = await updateContractor(contractor.id, payload);
+      const res = await updateWorker(worker.id, payload);
       if (!res.ok) {
         setErr(res.error);
         return;
@@ -599,9 +599,9 @@ function EditContractorModal({
   return (
     <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-xl shadow-lg max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-lg font-semibold mb-1">Edit contractor</h3>
+        <h3 className="text-lg font-semibold mb-1">Edit worker</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          These values are pre-filled into the contractor&apos;s Wingspan onboarding form on
+          These values are pre-filled into the worker&apos;s Wingspan onboarding form on
           their next session link. Email and external ID can&apos;t be changed.
         </p>
 
@@ -671,15 +671,15 @@ function EditContractorModal({
           <div>
             <label className="block text-sm font-medium mb-1.5">
               SSN
-              {contractor.ssnLast4 && (
-                <span className="ml-1.5 text-xs text-muted-foreground font-normal">on file ***-**-{contractor.ssnLast4}</span>
+              {worker.ssnLast4 && (
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">on file ***-**-{worker.ssnLast4}</span>
               )}
             </label>
             <input
               type="text"
               value={ssn}
               onChange={(e) => setSsn(maskSsn(e.target.value))}
-              placeholder={contractor.ssnLast4 ? "Enter to replace" : "123-45-6789"}
+              placeholder={worker.ssnLast4 ? "Enter to replace" : "123-45-6789"}
               maxLength={11}
               className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary font-mono"
             />
@@ -759,11 +759,11 @@ function EditContractorModal({
         <div className="mt-4 pt-4 border-t border-border space-y-1 text-xs">
           <div className="flex justify-between gap-4 text-muted-foreground">
             <span>Email</span>
-            <span className="font-mono">{contractor.email}</span>
+            <span className="font-mono">{worker.email}</span>
           </div>
           <div className="flex justify-between gap-4 text-muted-foreground">
             <span>External ID</span>
-            <span className="font-mono">{contractor.externalId}</span>
+            <span className="font-mono">{worker.externalId}</span>
           </div>
         </div>
 
@@ -792,11 +792,11 @@ function EditContractorModal({
 }
 
 function AttachEntityModal({
-  contractorId,
+  workerId,
   available,
   onClose,
 }: {
-  contractorId: string;
+  workerId: string;
   available: Entity[];
   onClose: () => void;
 }) {
@@ -809,7 +809,7 @@ function AttachEntityModal({
     if (!selected) return;
     setErr(null);
     start(async () => {
-      const res = await attachContractorToEntity(contractorId, selected);
+      const res = await attachWorkerToEntity(workerId, selected);
       if (!res.ok) {
         setErr(res.error);
         return;
@@ -824,7 +824,7 @@ function AttachEntityModal({
       <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
         <h3 className="text-lg font-semibold mb-1">Attach to entity</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Each contractor↔entity link creates an <code className="font-mono text-xs">engagementId</code> used on payables.
+          Each worker↔entity link creates an <code className="font-mono text-xs">engagementId</code> used on payables.
         </p>
         {available.length === 0 ? (
           <p className="text-sm text-muted-foreground">No entities available.</p>
@@ -868,11 +868,11 @@ function AttachEntityModal({
 }
 
 function PayNowModal({
-  contractor,
+  worker,
   engagements,
   onClose,
 }: {
-  contractor: Contractor;
+  worker: Worker;
   engagements: Engagement[];
   onClose: () => void;
 }) {
@@ -885,7 +885,7 @@ function PayNowModal({
   const [confirm, setConfirm] = useState<{ count: number; totalCents: number } | null>(null);
   const [pending, start] = useTransition();
 
-  const fullName = [contractor.firstName, contractor.lastName].filter(Boolean).join(" ") || contractor.email;
+  const fullName = [worker.firstName, worker.lastName].filter(Boolean).join(" ") || worker.email;
 
   function submit(confirmOthers = false) {
     const cents = Math.round(parseFloat(amount) * 100);
@@ -899,8 +899,8 @@ function PayNowModal({
     }
     setErr(null);
     start(async () => {
-      const res = await payContractorNow({
-        contractorId: contractor.id,
+      const res = await payWorkerNow({
+        workerId: worker.id,
         entityId,
         amountCents: cents,
         ...(description ? { description } : {}),

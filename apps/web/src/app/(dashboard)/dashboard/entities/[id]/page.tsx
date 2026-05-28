@@ -24,7 +24,7 @@ interface Entity {
 
 interface Payable {
   id: string;
-  contractorId: string;
+  workerId: string;
   amountCents: number;
   status: string;
   externalReferenceId: string | null;
@@ -236,7 +236,7 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
             <CheckCircle2 className="h-8 w-8 text-green-600 mx-auto mb-3" />
             <h2 className="text-base font-semibold mb-1">Entity is ready</h2>
             <p className="text-sm text-muted-foreground">
-              Add contractors and start creating payables to see activity here.
+              Add workers and start creating payables to see activity here.
             </p>
           </div>
         )}

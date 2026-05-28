@@ -26,7 +26,7 @@ import {
 
 const navItems = [
   { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-  { href: "/dashboard/contractors", label: "Contractors", icon: Users },
+  { href: "/dashboard/workers", label: "Workers", icon: Users },
   { href: "/dashboard/entities", label: "Entities", icon: Building2 },
   { href: "/dashboard/payables", label: "Payables", icon: FileText },
   { href: "/dashboard/disbursements", label: "Disbursements", icon: Banknote },

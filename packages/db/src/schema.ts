@@ -27,13 +27,22 @@ export const tenantPlanEnum = pgEnum("tenant_plan", ["starter", "growth", "enter
 
 export const entityStatusEnum = pgEnum("entity_status", ["pending", "active", "suspended"]);
 
-export const contractorOnboardingStatusEnum = pgEnum("contractor_onboarding_status", [
+export const workerOnboardingStatusEnum = pgEnum("worker_onboarding_status", [
   "invited",
   "w9_pending",
   "payout_pending",
   "active",
   "inactive",
 ]);
+
+// Entity tax classification. Drives whether engagements are 1099 contractor
+// or W-2 employee, and which Wingspan API surface (V1 vs V3) we use.
+export const entityTaxTypeEnum = pgEnum("entity_tax_type", ["w2", "1099"]);
+
+// Mirrors Wingspan V3's engagement.type. A worker can sequentially transition
+// between contractor and employee but cannot hold both active simultaneously
+// with the same payer.
+export const engagementTypeEnum = pgEnum("engagement_type", ["contractor", "employee"]);
 
 export const payableStatusEnum = pgEnum("payable_status", [
   "draft",
@@ -135,6 +144,14 @@ export const tenantEntities = pgTable(
     wingspanChildUserIdSandbox: text("wingspan_child_user_id_sandbox").unique(),
     wingspanChildUserEmailSandbox: text("wingspan_child_user_email_sandbox"),
 
+    // V3 (W-2) account ID — populated when the entity is provisioned against
+    // Wingspan's V3 API. Distinct from the V1 child user IDs above.
+    wingspanV3AccountId: text("wingspan_v3_account_id"),
+    wingspanV3AccountIdSandbox: text("wingspan_v3_account_id_sandbox"),
+
+    // 1099 (default) or W-2. Locked once the entity is created.
+    taxType: entityTaxTypeEnum("tax_type").notNull().default("1099"),
+
     environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -172,10 +189,13 @@ export const apiKeys = pgTable(
   }),
 );
 
-// ─── Contractors ──────────────────────────────────────────────────────────────
+// ─── Workers ──────────────────────────────────────────────────────────────────
 
-export const contractors = pgTable(
-  "contractors",
+// A worker is a person we pay — 1099 contractor or W-2 employee. The Wingspan
+// Payee they map to is classification-agnostic; tax classification lives on
+// the engagement (see `engagements.type`).
+export const workers = pgTable(
+  "workers",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     tenantId: uuid("tenant_id")
@@ -185,7 +205,7 @@ export const contractors = pgTable(
     email: text("email").notNull(),
     firstName: text("first_name"),
     lastName: text("last_name"),
-    onboardingStatus: contractorOnboardingStatusEnum("onboarding_status")
+    onboardingStatus: workerOnboardingStatusEnum("onboarding_status")
       .notNull()
       .default("invited"),
 
@@ -196,7 +216,7 @@ export const contractors = pgTable(
 
     w9SeededData: jsonb("w9_seeded_data"),
     // AES-256-GCM encrypted SSN/ITIN. Pushed to Wingspan as part of payeeW9Data
-    // to pre-fill the contractor's W-9 form. Tenant DTO exposes ssnLast4 only.
+    // to pre-fill the W-9 form. Tenant DTO exposes ssnLast4 only.
     ssnEncrypted: text("ssn_encrypted"),
     metadata: jsonb("metadata").notNull().default({}),
 
@@ -204,11 +224,11 @@ export const contractors = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    tenantEnvExternalUniq: uniqueIndex("idx_contractors_tenant_env_external").on(t.tenantId, t.environment, t.externalId),
-    tenantEnvIdx: index("idx_contractors_tenant_env").on(t.tenantId, t.environment),
-    tenantIdIdx: index("idx_contractors_tenant_id").on(t.tenantId),
-    emailIdx: index("idx_contractors_email").on(t.tenantId, t.email),
-    wingspanUserIdIdx: index("idx_contractors_wingspan_user_id").on(t.wingspanUserId),
+    tenantEnvExternalUniq: uniqueIndex("idx_workers_tenant_env_external").on(t.tenantId, t.environment, t.externalId),
+    tenantEnvIdx: index("idx_workers_tenant_env").on(t.tenantId, t.environment),
+    tenantIdIdx: index("idx_workers_tenant_id").on(t.tenantId),
+    emailIdx: index("idx_workers_email").on(t.tenantId, t.email),
+    wingspanUserIdIdx: index("idx_workers_wingspan_user_id").on(t.wingspanUserId),
   }),
 );
 
@@ -221,15 +241,19 @@ export const engagements = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "restrict" }),
-    contractorId: uuid("contractor_id")
+    workerId: uuid("worker_id")
       .notNull()
-      .references(() => contractors.id, { onDelete: "restrict" }),
+      .references(() => workers.id, { onDelete: "restrict" }),
     entityId: uuid("entity_id")
       .notNull()
       .references(() => tenantEntities.id, { onDelete: "restrict" }),
     status: engagementStatusEnum("status").notNull().default("active"),
 
-    // THE critical ID — used as collaboratorId on every payable
+    // Mirrors Wingspan V3 engagement.type. Must match the parent entity's taxType.
+    type: engagementTypeEnum("type").notNull().default("contractor"),
+
+    // THE critical ID — used as collaboratorId on every payable (1099 only;
+    // W-2 engagements have no Wingspan engagement ID until Phase 2 wires V3).
     wingspanPayerPayeeEngagementId: text("wingspan_payer_payee_engagement_id").notNull().unique(),
 
     // Entity-scoped payeeId (different from Payee Bucket payeeId)
@@ -241,10 +265,10 @@ export const engagements = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
-    contractorEntityEnvUniq: uniqueIndex("idx_engagements_contractor_entity_env").on(t.contractorId, t.entityId, t.environment),
+    workerEntityEnvUniq: uniqueIndex("idx_engagements_contractor_entity_env").on(t.workerId, t.entityId, t.environment),
     tenantEnvIdx: index("idx_engagements_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_engagements_tenant_id").on(t.tenantId),
-    contractorIdIdx: index("idx_engagements_contractor_id").on(t.contractorId),
+    workerIdIdx: index("idx_engagements_contractor_id").on(t.workerId),
     entityIdIdx: index("idx_engagements_entity_id").on(t.entityId),
   }),
 );
@@ -292,9 +316,9 @@ export const payables = pgTable(
     entityId: uuid("entity_id")
       .notNull()
       .references(() => tenantEntities.id, { onDelete: "restrict" }),
-    contractorId: uuid("contractor_id")
+    workerId: uuid("worker_id")
       .notNull()
-      .references(() => contractors.id, { onDelete: "restrict" }),
+      .references(() => workers.id, { onDelete: "restrict" }),
     engagementId: uuid("engagement_id")
       .notNull()
       .references(() => engagements.id, { onDelete: "restrict" }),
@@ -329,7 +353,7 @@ export const payables = pgTable(
     tenantEnvIdx: index("idx_payables_tenant_env").on(t.tenantId, t.environment),
     tenantIdIdx: index("idx_payables_tenant_id").on(t.tenantId),
     entityIdIdx: index("idx_payables_entity_id").on(t.entityId),
-    contractorIdIdx: index("idx_payables_contractor_id").on(t.contractorId),
+    workerIdIdx: index("idx_payables_contractor_id").on(t.workerId),
     statusIdx: index("idx_payables_status").on(t.tenantId, t.status),
     wingspanIdIdx: index("idx_payables_wingspan_id").on(t.wingspanPayableId),
   }),

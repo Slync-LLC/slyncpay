@@ -7,6 +7,7 @@ interface CreateEntityInput {
   name: string;
   ein: string;
   state?: string;
+  taxType: "1099" | "w2";
 }
 
 export async function createEntity(input: CreateEntityInput): Promise<

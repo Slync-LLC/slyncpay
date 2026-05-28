@@ -16,7 +16,7 @@
 
 type AnyRow = Record<string, unknown>;
 
-export interface ContractorDTO {
+export interface WorkerDTO {
   id: string;
   externalId: string;
   email: string;
@@ -32,10 +32,11 @@ export interface ContractorDTO {
 
 export interface EngagementDTO {
   id: string;
-  contractorId: string;
+  workerId: string;
   entityId: string;
   engagementId: string; // SlyncPay's UUID — used on payables
   status: string;
+  type: "contractor" | "employee";
   entityName?: string | null;
   createdAt: Date | string;
 }
@@ -46,6 +47,7 @@ export interface EntityDTO {
   einLast4: string | null;
   state: string | null;
   status: string;
+  taxType: "w2" | "1099";
   createdAt: Date | string;
   updatedAt?: Date | string;
 }
@@ -53,7 +55,7 @@ export interface EntityDTO {
 export interface PayableDTO {
   id: string;
   entityId: string;
-  contractorId: string;
+  workerId: string;
   engagementId?: string;
   externalReferenceId: string | null;
   amountCents: number;
@@ -80,7 +82,7 @@ export interface DisbursementDTO {
 
 // ─── Mappers ──────────────────────────────────────────────────────────────────
 
-export function toContractorDTO(r: AnyRow): ContractorDTO {
+export function toWorkerDTO(r: AnyRow): WorkerDTO {
   return {
     id: r["id"] as string,
     externalId: r["externalId"] as string,
@@ -102,10 +104,11 @@ export function toEngagementDTO(
 ): EngagementDTO {
   return {
     id: r["id"] as string,
-    contractorId: r["contractorId"] as string,
+    workerId: r["workerId"] as string,
     entityId: r["entityId"] as string,
     engagementId: r["id"] as string, // intentional: tenant-facing ID === SlyncPay UUID
     status: r["status"] as string,
+    type: ((r["type"] as string) ?? "contractor") as "contractor" | "employee",
     ...(opts.entityName !== undefined ? { entityName: opts.entityName } : {}),
     createdAt: r["createdAt"] as Date | string,
   };
@@ -118,6 +121,7 @@ export function toEntityDTO(r: AnyRow): EntityDTO {
     einLast4: (r["einLast4"] as string | null) ?? null,
     state: (r["state"] as string | null) ?? null,
     status: r["status"] as string,
+    taxType: ((r["taxType"] as string) ?? "1099") as "w2" | "1099",
     createdAt: r["createdAt"] as Date | string,
     ...(r["updatedAt"] !== undefined ? { updatedAt: r["updatedAt"] as Date | string } : {}),
   };
@@ -127,7 +131,7 @@ export function toPayableDTO(r: AnyRow): PayableDTO {
   return {
     id: r["id"] as string,
     entityId: r["entityId"] as string,
-    contractorId: r["contractorId"] as string,
+    workerId: r["workerId"] as string,
     ...(r["engagementId"] !== undefined ? { engagementId: r["engagementId"] as string } : {}),
     externalReferenceId: (r["externalReferenceId"] as string | null) ?? null,
     amountCents: r["amountCents"] as number,

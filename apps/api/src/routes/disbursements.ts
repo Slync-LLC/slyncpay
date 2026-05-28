@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, desc, inArray, count } from "@slyncpay/db";
 import { createHash } from "crypto";
-import { db, disbursements, payables, tenantEntities, contractors, idempotencyKeys } from "@slyncpay/db";
+import { db, disbursements, payables, tenantEntities, workers, idempotencyKeys } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, entityChildUserId } from "../lib/wingspan.js";
@@ -344,25 +344,25 @@ disbursementRoutes.get("/:id", async (c) => {
       };
 
   // Join contractor info per payable so the UI can show names
-  const contractorIds = Array.from(new Set(latestPayables.map((p) => p.contractorId)));
+  const contractorIds = Array.from(new Set(latestPayables.map((p) => p.workerId)));
   const contractorRows = contractorIds.length
     ? await db
         .select({
-          id: contractors.id,
-          firstName: contractors.firstName,
-          lastName: contractors.lastName,
-          email: contractors.email,
-          externalId: contractors.externalId,
+          id: workers.id,
+          firstName: workers.firstName,
+          lastName: workers.lastName,
+          email: workers.email,
+          externalId: workers.externalId,
         })
-        .from(contractors)
-        .where(inArray(contractors.id, contractorIds))
+        .from(workers)
+        .where(inArray(workers.id, contractorIds))
     : [];
   const contractorById = Object.fromEntries(contractorRows.map((c) => [c.id, c]));
 
   return c.json({
     ...toDisbursementDTO(latestDisb),
     payables: latestPayables.map((p) => {
-      const co = contractorById[p.contractorId];
+      const co = contractorById[p.workerId];
       const dto = toPayableDTO(p);
       return {
         ...dto,

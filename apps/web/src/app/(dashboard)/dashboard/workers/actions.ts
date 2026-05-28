@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { apiServerJson, apiServerGet, ServerApiError } from "@/lib/api-server";
 
-interface CreateContractorInput {
+interface CreateWorkerInput {
   externalId: string;
   email: string;
   firstName: string;
@@ -13,35 +13,35 @@ interface CreateContractorInput {
   ssn?: string;
 }
 
-export async function createContractor(input: CreateContractorInput): Promise<
-  { ok: true; contractorId: string } | { ok: false; error: string }
+export async function createWorker(input: CreateWorkerInput): Promise<
+  { ok: true; workerId: string } | { ok: false; error: string }
 > {
-  const { entityId, ...contractorBody } = input;
-  let contractorId: string;
+  const { entityId, ...workerBody } = input;
+  let workerId: string;
   try {
-    const created = await apiServerJson<{ id: string }>("/v1/contractors", contractorBody);
-    contractorId = created.id;
+    const created = await apiServerJson<{ id: string }>("/v1/workers", workerBody);
+    workerId = created.id;
   } catch (err) {
     if (err instanceof ServerApiError) return { ok: false, error: err.message };
     return { ok: false, error: "Could not reach the server. Please try again." };
   }
 
   // Attach to the selected entity (creates the engagement). If this fails the
-  // contractor is still saved — the user can attach manually from the detail page.
+  // worker is still saved — the user can attach manually from the detail page.
   try {
-    await apiServerJson(`/v1/contractors/${contractorId}/engagements`, { entityId });
+    await apiServerJson(`/v1/workers/${workerId}/engagements`, { entityId });
   } catch (err) {
     const detail = err instanceof ServerApiError ? err.message : "Network error";
     return {
       ok: false,
-      error: `Contractor created but couldn't attach to entity: ${detail}. Attach from the contractor detail page.`,
+      error: `Worker created but couldn't attach to entity: ${detail}. Attach from the worker detail page.`,
     };
   }
 
-  return { ok: true, contractorId };
+  return { ok: true, workerId };
 }
 
-interface UpdateContractorInput {
+interface UpdateWorkerInput {
   firstName?: string | null;
   lastName?: string | null;
   onboardingStatus?: "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
@@ -60,12 +60,12 @@ interface UpdateContractorInput {
   ssn?: string;
 }
 
-export async function updateContractor(
-  contractorId: string,
-  input: UpdateContractorInput,
+export async function updateWorker(
+  workerId: string,
+  input: UpdateWorkerInput,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await apiServerJson(`/v1/contractors/${contractorId}`, input, { method: "PATCH" });
+    await apiServerJson(`/v1/workers/${workerId}`, input, { method: "PATCH" });
     return { ok: true };
   } catch (err) {
     if (err instanceof ServerApiError) return { ok: false, error: err.message };
@@ -73,12 +73,12 @@ export async function updateContractor(
   }
 }
 
-export async function attachContractorToEntity(
-  contractorId: string,
+export async function attachWorkerToEntity(
+  workerId: string,
   entityId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await apiServerJson(`/v1/contractors/${contractorId}/engagements`, { entityId });
+    await apiServerJson(`/v1/workers/${workerId}/engagements`, { entityId });
     return { ok: true };
   } catch (err) {
     if (err instanceof ServerApiError) return { ok: false, error: err.message };
@@ -87,7 +87,7 @@ export async function attachContractorToEntity(
 }
 
 interface PayNowInput {
-  contractorId: string;
+  workerId: string;
   entityId: string;
   amountCents: number;
   description?: string;
@@ -95,7 +95,7 @@ interface PayNowInput {
   confirmIncludesOtherPending?: boolean;
 }
 
-export async function payContractorNow(input: PayNowInput): Promise<
+export async function payWorkerNow(input: PayNowInput): Promise<
   | { ok: true; disbursementId: string; payableId: string }
   | { ok: false; error: string; needsConfirm?: boolean; pendingCount?: number; pendingTotalCents?: number }
 > {
@@ -106,7 +106,7 @@ export async function payContractorNow(input: PayNowInput): Promise<
       payable: { id: string };
       disbursement: { id: string };
     }>(
-      `/v1/contractors/${input.contractorId}/pay-now`,
+      `/v1/workers/${input.workerId}/pay-now`,
       {
         entityId: input.entityId,
         amountCents: input.amountCents,
@@ -135,16 +135,16 @@ export async function payContractorNow(input: PayNowInput): Promise<
   }
 }
 
-export async function redirectToContractor(contractorId: string) {
-  redirect(`/dashboard/contractors/${contractorId}`);
+export async function redirectToWorker(workerId: string) {
+  redirect(`/dashboard/workers/${workerId}`);
 }
 
-export async function getContractorOnboardingLink(
-  contractorId: string,
+export async function getWorkerOnboardingLink(
+  workerId: string,
 ): Promise<{ ok: true; url: string; expiresAt: string } | { ok: false; error: string }> {
   try {
     const res = await apiServerGet<{ url: string; expiresAt: string }>(
-      `/v1/contractors/${contractorId}/onboarding-link`,
+      `/v1/workers/${workerId}/onboarding-link`,
     );
     return { ok: true, url: res.url, expiresAt: res.expiresAt };
   } catch (err) {

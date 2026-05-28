@@ -17,7 +17,7 @@ const lineItemSchema = z.object({
 });
 
 const schema = z.object({
-  contractorId: z.string().min(1, "Required"),
+  workerId: z.string().min(1, "Required"),
   entityId: z.string().min(1, "Required"),
   externalReferenceId: z.string().min(1, "Required"),
   dueDate: z.string().min(1, "Required"),
@@ -27,10 +27,10 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 
 export function NewPayableForm({
-  contractors,
+  workers,
   entities,
 }: {
-  contractors: Array<{ id: string; label: string }>;
+  workers: Array<{ id: string; label: string }>;
   entities: Array<{ id: string; label: string }>;
 }) {
   const router = useRouter();
@@ -62,7 +62,7 @@ export function NewPayableForm({
     setSubmitting(true);
     setError(null);
     const result = await createPayable({
-      contractorId: values.contractorId,
+      workerId: values.workerId,
       entityId: values.entityId,
       externalReferenceId: values.externalReferenceId,
       dueDate: values.dueDate,
@@ -82,7 +82,7 @@ export function NewPayableForm({
     router.push(`/dashboard/payables`);
   }
 
-  const canSubmit = contractors.length > 0 && entities.length > 0;
+  const canSubmit = workers.length > 0 && entities.length > 0;
 
   return (
     <div className="p-8 max-w-2xl">
@@ -93,14 +93,14 @@ export function NewPayableForm({
 
       <h1 className="text-2xl font-bold mb-1">New payable</h1>
       <p className="text-sm text-muted-foreground mb-8">
-        Create a payable for a contractor. It will be included in the next disbursement for the selected entity.
+        Create a payable for a worker. It will be included in the next disbursement for the selected entity.
       </p>
 
       {!canSubmit && (
         <div className="mb-6 rounded-md bg-yellow-50 border border-yellow-200 px-4 py-3 text-sm text-yellow-800">
-          {contractors.length === 0 && (
+          {workers.length === 0 && (
             <p>
-              No contractors yet. <Link href="/dashboard/contractors/new" className="underline font-medium">Add one</Link> first.
+              No workers yet. <Link href="/dashboard/workers/new" className="underline font-medium">Add one</Link> first.
             </p>
           )}
           {entities.length === 0 && (
@@ -114,17 +114,17 @@ export function NewPayableForm({
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5">Contractor</label>
+            <label className="block text-sm font-medium mb-1.5">Worker</label>
             <select
-              {...register("contractorId")}
+              {...register("workerId")}
               className="w-full px-3 py-2 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             >
-              <option value="">Select contractor</option>
-              {contractors.map((c) => (
+              <option value="">Select worker</option>
+              {workers.map((c) => (
                 <option key={c.id} value={c.id}>{c.label}</option>
               ))}
             </select>
-            {errors.contractorId && <p className="text-xs text-destructive mt-1">{errors.contractorId.message}</p>}
+            {errors.workerId && <p className="text-xs text-destructive mt-1">{errors.workerId.message}</p>}
           </div>
           <div>
             <label className="block text-sm font-medium mb-1.5">Entity</label>

@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "SlyncPay API",
-    "version": "1.1.0",
-    "description": "The SlyncPay API lets you onboard contractors, link them to your entities, create payables, and trigger disbursements. All endpoints are JSON over HTTPS and authenticated with a bearer API key.\n\n**Base URL:** `https://slyncpay-api.onrender.com`\n\n**Auth:** include `Authorization: Bearer spk_live_...` on every request.\n\nGet keys from the [Developer → API Keys](/dashboard/developer/keys) page.\n\n## Sandbox vs Live\n\nEvery API key is either **live** (`spk_live_*`) or **test** (`spk_test_*`). Test keys hit an isolated sandbox: contractors, payables, and disbursements created in sandbox never touch real money and never appear in the live environment. Use sandbox to build and test your integration end-to-end before going live.\n\nThe sandbox accepts fake SSNs and EINs, no real emails are sent, and no PDFs are generated.\n\n## Idempotency\n\n`POST /v1/payables`, `POST /v1/disbursements`, and `POST /v1/contractors/{id}/pay-now` require an `Idempotency-Key` header. Repeating a request with the same key returns the original response and does not double-charge.\n\n## Onboarding lifecycle\n\nA contractor moves through these `onboardingStatus` values:\n\n- `invited` — created, waiting on them to open the link\n- `w9_pending` — onboarding started, W-9 not yet submitted\n- `payout_pending` — W-9 done, payout method not yet linked\n- `active` — fully onboarded; payable to\n- `inactive` — archived\n\n**You can only create payables for `active` contractors.** Both `POST /v1/payables` and `POST /v1/contractors/{id}/pay-now` return a 400 with `validation_error` if the contractor isn't active.\n\n## Embedded onboarding (iframe)\n\nWhen you create a contractor, the response includes `embeddedOnboardingUrl`. Drop it directly into an iframe — it's the same flow contractors get if you send the link by email. The URL expires 60 minutes after issuance; fetch a fresh one via `GET /v1/contractors/{id}/onboarding-link`.\n\n```html\n<iframe src=\"{embeddedOnboardingUrl}\" width=\"600\" height=\"800\"\n        allow=\"clipboard-write\"></iframe>\n```\n\nTo pre-populate the contractor's W-9 form, send any of `firstName`, `lastName`, `ssn`, and the `w9Prefill` address fields on `POST /v1/contractors` (or `PATCH /v1/contractors/{id}` afterward). SSN is encrypted at rest; the API never returns it back, but the contractor DTO exposes `ssnLast4` for display."
+    "version": "2.0.0",
+    "description": "The SlyncPay API lets you onboard workers, link them to your entities, create payables, and trigger disbursements. All endpoints are JSON over HTTPS and authenticated with a bearer API key.\n\n**Base URL:** `https://slyncpay-api.onrender.com`\n\n**Auth:** include `Authorization: Bearer spk_live_...` on every request.\n\nGet keys from the [Developer → API Keys](/dashboard/developer/keys) page.\n\n## Sandbox vs Live\n\nEvery API key is either **live** (`spk_live_*`) or **test** (`spk_test_*`). Test keys hit an isolated sandbox: workers, payables, and disbursements created in sandbox never touch real money and never appear in the live environment. Use sandbox to build and test your integration end-to-end before going live.\n\nThe sandbox accepts fake SSNs and EINs, no real emails are sent, and no PDFs are generated.\n\n## Idempotency\n\n`POST /v1/payables`, `POST /v1/disbursements`, and `POST /v1/workers/{id}/pay-now` require an `Idempotency-Key` header. Repeating a request with the same key returns the original response and does not double-charge.\n\n## Onboarding lifecycle\n\nA worker moves through these `onboardingStatus` values:\n\n- `invited` — created, waiting on them to open the link\n- `w9_pending` — onboarding started, W-9 not yet submitted\n- `payout_pending` — W-9 done, payout method not yet linked\n- `active` — fully onboarded; payable to\n- `inactive` — archived\n\n**You can only create payables for `active` workers.** Both `POST /v1/payables` and `POST /v1/workers/{id}/pay-now` return a 400 with `validation_error` if the worker isn't active.\n\n## Embedded onboarding (iframe)\n\nWhen you create a worker, the response includes `embeddedOnboardingUrl`. Drop it directly into an iframe — it's the same flow workers get if you send the link by email. The URL expires 60 minutes after issuance; fetch a fresh one via `GET /v1/workers/{id}/onboarding-link`.\n\n```html\n<iframe src=\"{embeddedOnboardingUrl}\" width=\"600\" height=\"800\"\n        allow=\"clipboard-write\"></iframe>\n```\n\nTo pre-populate the worker's W-9 form, send any of `firstName`, `lastName`, `ssn`, and the `w9Prefill` address fields on `POST /v1/workers` (or `PATCH /v1/workers/{id}` afterward). SSN is encrypted at rest; the API never returns it back, but the worker DTO exposes `ssnLast4` for display."
   },
   "servers": [
     { "url": "https://slyncpay-api.onrender.com", "description": "Production" }
@@ -28,7 +28,7 @@
       },
       "W9Prefill": {
         "type": "object",
-        "description": "Fields used to pre-fill the contractor's Wingspan W-9 onboarding form. Address fields and country pre-fill the W-9 step; the rest (middleName, jobTitle, dateOfBirth, phone) are stored on the contractor record but the contractor still enters them in the form themselves.",
+        "description": "Fields used to pre-fill the worker's Wingspan W-9 onboarding form. Address fields and country pre-fill the W-9 step; the rest (middleName, jobTitle, dateOfBirth, phone) are stored on the worker record but the worker still enters them in the form themselves.",
         "properties": {
           "middleName": { "type": "string", "maxLength": 100 },
           "jobTitle": { "type": "string", "maxLength": 200, "description": "e.g. 'Travel nurse'." },
@@ -42,11 +42,11 @@
           "country": { "type": "string", "minLength": 2, "maxLength": 2, "default": "US" }
         }
       },
-      "Contractor": {
+      "Worker": {
         "type": "object",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
-          "externalId": { "type": "string", "description": "Your internal identifier for this contractor." },
+          "externalId": { "type": "string", "description": "Your internal identifier for this worker." },
           "email": { "type": "string", "format": "email" },
           "firstName": { "type": ["string", "null"] },
           "lastName": { "type": ["string", "null"] },
@@ -63,18 +63,19 @@
       },
       "Engagement": {
         "type": "object",
-        "description": "Links a contractor to one of your entities. The `engagementId` is what you reference when creating payables.",
+        "description": "Links a worker to one of your entities. The `engagementId` is what you reference when creating payables.",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "engagementId": {
             "type": "string",
             "format": "uuid",
-            "description": "Pass this on payables (e.g. POST /v1/payables) to indicate which contractor-entity link to bill."
+            "description": "Pass this on payables (e.g. POST /v1/payables) to indicate which worker-entity link to bill."
           },
-          "contractorId": { "type": "string", "format": "uuid" },
+          "workerId": { "type": "string", "format": "uuid" },
           "entityId": { "type": "string", "format": "uuid" },
           "entityName": { "type": ["string", "null"] },
           "status": { "type": "string", "enum": ["pending", "active", "inactive"] },
+          "type": { "type": "string", "enum": ["contractor", "employee"], "description": "Matches the entity's taxType: `contractor` for 1099, `employee` for W-2. A worker can transition between types sequentially but cannot hold both active at once." },
           "createdAt": { "type": "string", "format": "date-time" }
         }
       },
@@ -86,6 +87,7 @@
           "einLast4": { "type": ["string", "null"] },
           "state": { "type": ["string", "null"] },
           "status": { "type": "string", "enum": ["pending", "active", "suspended"] },
+          "taxType": { "type": "string", "enum": ["1099", "w2"], "description": "Determines whether this entity runs 1099 contractor payments or W-2 employee payroll. Locked at create time." },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" }
         }
@@ -137,7 +139,7 @@
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "entityId": { "type": "string", "format": "uuid" },
-          "contractorId": { "type": "string", "format": "uuid" },
+          "workerId": { "type": "string", "format": "uuid" },
           "engagementId": { "type": "string", "format": "uuid" },
           "externalReferenceId": { "type": ["string", "null"], "description": "Your reference (e.g. invoice or shift ID)." },
           "amountCents": { "type": "integer", "minimum": 1 },
@@ -150,9 +152,9 @@
           "updatedAt": { "type": "string", "format": "date-time" }
         }
       },
-      "ContractorOnPayable": {
+      "WorkerOnPayable": {
         "type": "object",
-        "description": "Contractor info embedded in disbursement detail payables.",
+        "description": "Worker info embedded in disbursement detail payables.",
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "firstName": { "type": ["string", "null"] },
@@ -167,7 +169,7 @@
           {
             "type": "object",
             "properties": {
-              "contractor": { "anyOf": [{ "$ref": "#/components/schemas/ContractorOnPayable" }, { "type": "null" }] }
+              "worker": { "anyOf": [{ "$ref": "#/components/schemas/WorkerOnPayable" }, { "type": "null" }] }
             }
           }
         ]
@@ -232,19 +234,19 @@
     }
   },
   "tags": [
-    { "name": "Contractors", "description": "Add, update, archive, and onboard contractors." },
-    { "name": "Engagements", "description": "Link contractors to your entities." },
+    { "name": "Workers", "description": "Add, update, archive, and onboard workers." },
+    { "name": "Engagements", "description": "Link workers to your entities." },
     { "name": "Entities", "description": "Your legal entities (one per EIN)." },
     { "name": "Payables", "description": "Create one-off or scheduled payables." },
-    { "name": "Disbursements", "description": "Trigger batch payments to your contractors." },
+    { "name": "Disbursements", "description": "Trigger batch payments to your workers." },
     { "name": "Activity Log", "description": "Audit trail for every action on your account." }
   ],
   "paths": {
-    "/v1/contractors": {
+    "/v1/workers": {
       "post": {
-        "tags": ["Contractors"],
-        "summary": "Create a contractor",
-        "description": "Onboards a new contractor under your tenant. Pass any data you already have (name, address, SSN) and we'll seed the Wingspan W-9 onboarding form so the contractor confirms instead of re-entering it. The contractor receives an embedded onboarding URL — drop it in an iframe or email it to them.",
+        "tags": ["Workers"],
+        "summary": "Create a worker",
+        "description": "Onboards a new worker under your tenant. Pass any data you already have (name, address, SSN) and we'll seed the Wingspan W-9 onboarding form so the worker confirms instead of re-entering it. The worker receives an embedded onboarding URL — drop it in an iframe or email it to them.",
         "requestBody": {
           "required": true,
           "content": {
@@ -259,7 +261,7 @@
                   "lastName": { "type": "string", "maxLength": 100 },
                   "metadata": { "type": "object", "additionalProperties": true },
                   "w9Prefill": { "$ref": "#/components/schemas/W9Prefill" },
-                  "ssn": { "type": "string", "description": "9-digit SSN/ITIN (with or without dashes). Encrypted at rest, never returned. Only `ssnLast4` is exposed on the contractor DTO." }
+                  "ssn": { "type": "string", "description": "9-digit SSN/ITIN (with or without dashes). Encrypted at rest, never returned. Only `ssnLast4` is exposed on the worker DTO." }
                 }
               },
               "example": {
@@ -289,13 +291,13 @@
               "application/json": {
                 "schema": {
                   "allOf": [
-                    { "$ref": "#/components/schemas/Contractor" },
+                    { "$ref": "#/components/schemas/Worker" },
                     {
                       "type": "object",
                       "properties": {
                         "embeddedOnboardingUrl": {
                           "type": ["string", "null"],
-                          "description": "Iframe-safe URL that walks the contractor through W-9, payout setup, and identity. Expires 60 min after issuance."
+                          "description": "Iframe-safe URL that walks the worker through W-9, payout setup, and identity. Expires 60 min after issuance."
                         },
                         "embeddedOnboardingExpiresAt": { "type": ["string", "null"], "format": "date-time" }
                       }
@@ -310,8 +312,8 @@
         }
       },
       "get": {
-        "tags": ["Contractors"],
-        "summary": "List contractors",
+        "tags": ["Workers"],
+        "summary": "List workers",
         "parameters": [
           { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["invited", "w9_pending", "payout_pending", "active", "inactive"] } },
           { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
@@ -325,7 +327,7 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Contractor" } },
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/Worker" } },
                     "pagination": { "$ref": "#/components/schemas/Pagination" }
                   }
                 }
@@ -335,20 +337,20 @@
         }
       }
     },
-    "/v1/contractors/{id}": {
+    "/v1/workers/{id}": {
       "get": {
-        "tags": ["Contractors"],
-        "summary": "Get a contractor",
+        "tags": ["Workers"],
+        "summary": "Get a worker",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
-          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contractor" } } } },
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Worker" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "patch": {
-        "tags": ["Contractors"],
-        "summary": "Update a contractor",
-        "description": "Patch any subset of the contractor's fields. Changes to `firstName`, `lastName`, `w9Prefill`, and `ssn` are pushed back into the payment processor on the next onboarding-link request, so the W-9 form reflects the latest values.",
+        "tags": ["Workers"],
+        "summary": "Update a worker",
+        "description": "Patch any subset of the worker's fields. Changes to `firstName`, `lastName`, `w9Prefill`, and `ssn` are pushed back into the payment processor on the next onboarding-link request, so the W-9 form reflects the latest values.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": {
           "required": true,
@@ -363,7 +365,7 @@
                   "onboardingStatus": {
                     "type": "string",
                     "enum": ["invited", "w9_pending", "payout_pending", "active", "inactive"],
-                    "description": "Setting `inactive` archives the contractor; setting `active` restores. Other transitions are typically driven by the onboarding flow itself."
+                    "description": "Setting `inactive` archives the worker; setting `active` restores. Other transitions are typically driven by the onboarding flow itself."
                   },
                   "w9Prefill": { "$ref": "#/components/schemas/W9Prefill" },
                   "ssn": { "type": ["string", "null"], "description": "9-digit SSN/ITIN. Pass null to clear." }
@@ -376,38 +378,38 @@
           }
         },
         "responses": {
-          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Contractor" } } } },
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Worker" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "delete": {
-        "tags": ["Contractors"],
-        "summary": "Delete a contractor",
-        "description": "Permanently removes a contractor that has no engagements or payables. Once a contractor has been paid you can no longer hard-delete — set `onboardingStatus` to `inactive` via PATCH instead.",
+        "tags": ["Workers"],
+        "summary": "Delete a worker",
+        "description": "Permanently removes a worker that has no engagements or payables. Once a worker has been paid you can no longer hard-delete — set `onboardingStatus` to `inactive` via PATCH instead.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "204": { "description": "Deleted" },
-          "409": { "description": "Contractor has dependent engagements or payables — archive instead", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "409": { "description": "Worker has dependent engagements or payables — archive instead", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
-    "/v1/contractors/{id}/onboarding-link": {
+    "/v1/workers/{id}/onboarding-link": {
       "get": {
-        "tags": ["Contractors"],
+        "tags": ["Workers"],
         "summary": "Get a fresh embedded onboarding URL",
-        "description": "Generates a new session token and returns an iframe-safe URL for the contractor's Wingspan onboarding flow. Use this to issue a fresh link when the original 60-minute window has lapsed or you want to re-send. Also self-heals contractors whose underlying processor account isn't fully linked yet.",
+        "description": "Generates a new session token and returns an iframe-safe URL for the worker's Wingspan onboarding flow. Use this to issue a fresh link when the original 60-minute window has lapsed or you want to re-send. Also self-heals workers whose underlying processor account isn't fully linked yet.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OnboardingLink" } } } },
-          "422": { "description": "Contractor does not yet have an onboarding account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "422": { "description": "Worker does not yet have an onboarding account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
-    "/v1/contractors/{id}/engagements": {
+    "/v1/workers/{id}/engagements": {
       "post": {
         "tags": ["Engagements"],
-        "summary": "Attach a contractor to an entity",
-        "description": "Creates an engagement that lets this contractor be paid by the given entity. The returned `engagementId` is what you pass on payables. Idempotent: calling twice with the same (contractor, entity) returns the existing engagement.",
+        "summary": "Attach a worker to an entity",
+        "description": "Creates an engagement that lets this worker be paid by the given entity. The returned `engagementId` is what you pass on payables. Idempotent: calling twice with the same (worker, entity) returns the existing engagement.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "requestBody": {
           "required": true,
@@ -420,12 +422,14 @@
         },
         "responses": {
           "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Engagement" } } } },
-          "200": { "description": "Already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Engagement" } } } }
+          "200": { "description": "Already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Engagement" } } } },
+          "409": { "description": "Worker already has an active engagement of the opposite type (1099 vs W-2). End it before attaching to the new entity. `error: conflicting_classification`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "501": { "description": "W-2 payroll integration is not yet implemented. The entity is recorded but no engagement is created. `error: w2_not_implemented`. Returned only when the target entity has `taxType=w2`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "get": {
         "tags": ["Engagements"],
-        "summary": "List a contractor's engagements",
+        "summary": "List a worker's engagements",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "200": {
@@ -435,10 +439,10 @@
         }
       }
     },
-    "/v1/contractors/{id}/pay-now": {
+    "/v1/workers/{id}/pay-now": {
       "post": {
         "tags": ["Disbursements"],
-        "summary": "Pay a contractor immediately",
+        "summary": "Pay a worker immediately",
         "description": "Creates a payable and immediately triggers a disbursement for the selected entity. Because disbursements are processed per-entity, if the entity has other pending payables they will be paid in the same batch. The first call returns 409 with the conflict details; resubmit with `confirmIncludesOtherPending: true` to proceed.\n\nContractor must have `onboardingStatus = active`; otherwise returns 400.\n\n**Idempotency-Key header required.**",
         "parameters": [
           { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
@@ -485,7 +489,8 @@
               }
             }
           },
-          "400": { "description": "Contractor not active, or other validation failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "400": { "description": "Worker not active, or other validation failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "501": { "description": "W-2 payroll integration not yet implemented — pay-now is unavailable on employee engagements. Use the upcoming /v1/payrolls flow once W-2 ships. `error: w2_not_implemented`.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "409": {
             "description": "Other pending payables would be included — resubmit with confirmIncludesOtherPending=true",
             "content": {
@@ -519,7 +524,7 @@
       "post": {
         "tags": ["Entities"],
         "summary": "Create an entity",
-        "description": "Creates a new legal entity (one per EIN). Provisioning runs asynchronously — poll `GET /v1/entities/{id}/provisioning-status` until the entity's `status` flips to `active` before paying contractors against it.",
+        "description": "Creates a new legal entity (one per EIN). Provisioning runs asynchronously — poll `GET /v1/entities/{id}/provisioning-status` until the entity's `status` flips to `active` before paying workers against it.",
         "requestBody": {
           "required": true,
           "content": {
@@ -530,10 +535,11 @@
                 "properties": {
                   "name": { "type": "string", "minLength": 1, "maxLength": 100 },
                   "ein": { "type": "string", "pattern": "^\\d{2}-\\d{7}$", "description": "Format XX-XXXXXXX." },
-                  "state": { "type": "string", "minLength": 2, "maxLength": 2 }
+                  "state": { "type": "string", "minLength": 2, "maxLength": 2 },
+                  "taxType": { "type": "string", "enum": ["1099", "w2"], "default": "1099", "description": "Locks the entity's classification. W-2 entities accept worker engagements but payable creation returns 501 until the W-2 runtime ships." }
                 }
               },
-              "example": { "name": "NurseIO, Inc.", "ein": "83-3439766", "state": "AZ" }
+              "example": { "name": "NurseIO, Inc.", "ein": "83-3439766", "state": "AZ", "taxType": "1099" }
             }
           }
         },
@@ -556,7 +562,7 @@
       "delete": {
         "tags": ["Entities"],
         "summary": "Delete an entity",
-        "description": "Removes an entity that has no contractors or payables attached.",
+        "description": "Removes an entity that has no workers or payables attached.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "204": { "description": "Deleted" },
@@ -579,7 +585,7 @@
       "post": {
         "tags": ["Payables"],
         "summary": "Create a payable (queued for next disbursement)",
-        "description": "Creates a pending payable for the given contractor + entity. It will be paid the next time you trigger a disbursement for that entity.\n\nContractor must have `onboardingStatus = active`; otherwise returns 400 (`validation_error`).\n\n**Idempotency-Key header required.**",
+        "description": "Creates a pending payable for the given worker + entity. It will be paid the next time you trigger a disbursement for that entity.\n\nContractor must have `onboardingStatus = active`; otherwise returns 400 (`validation_error`).\n\n**Idempotency-Key header required.**",
         "parameters": [{ "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string" } }],
         "requestBody": {
           "required": true,
@@ -587,10 +593,10 @@
             "application/json": {
               "schema": {
                 "type": "object",
-                "required": ["entityId", "contractorId", "amountCents", "dueDate", "lineItems"],
+                "required": ["entityId", "workerId", "amountCents", "dueDate", "lineItems"],
                 "properties": {
                   "entityId": { "type": "string", "format": "uuid" },
-                  "contractorId": { "type": "string", "format": "uuid" },
+                  "workerId": { "type": "string", "format": "uuid" },
                   "externalReferenceId": { "type": "string", "maxLength": 200 },
                   "amountCents": { "type": "integer", "minimum": 1 },
                   "dueDate": { "type": "string", "format": "date" },
@@ -600,7 +606,7 @@
               },
               "example": {
                 "entityId": "9e1d…-…",
-                "contractorId": "7c3f…-…",
+                "workerId": "7c3f…-…",
                 "externalReferenceId": "SHIFT-9021",
                 "amountCents": 45000,
                 "dueDate": "2026-05-15",
@@ -611,7 +617,7 @@
         },
         "responses": {
           "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Payable" } } } },
-          "400": { "description": "Contractor not active, no engagement, or other validation failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "400": { "description": "Worker not active, no engagement, or other validation failure", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "get": {
@@ -619,7 +625,7 @@
         "summary": "List payables",
         "parameters": [
           { "name": "entityId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
-          { "name": "contractorId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "workerId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
           { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["draft", "pending", "processing", "paid", "failed", "cancelled"] } },
           { "name": "page", "in": "query", "schema": { "type": "integer", "default": 1 } },
           { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 20, "maximum": 100 } }
@@ -704,7 +710,7 @@
       "get": {
         "tags": ["Disbursements"],
         "summary": "Get a disbursement (with payables)",
-        "description": "Returns the disbursement plus the payables it contains, each enriched with the contractor's name and email. While the disbursement is still `processing`, this endpoint refreshes each payable's status from the underlying processor and rolls the disbursement up to `completed`, `partial`, or `failed` once every payable lands in a terminal state.",
+        "description": "Returns the disbursement plus the payables it contains, each enriched with the worker's name and email. While the disbursement is still `processing`, this endpoint refreshes each payable's status from the underlying processor and rolls the disbursement up to `completed`, `partial`, or `failed` once every payable lands in a terminal state.",
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
           "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DisbursementDetail" } } } },
@@ -716,7 +722,7 @@
       "get": {
         "tags": ["Activity Log"],
         "summary": "Query the audit log",
-        "description": "Returns events recorded for your tenant — logins, contractor/entity/payable/disbursement operations, admin actions. Newest first.",
+        "description": "Returns events recorded for your tenant — logins, worker/entity/payable/disbursement operations, admin actions. Newest first.",
         "parameters": [
           { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO8601 lower bound (inclusive)." },
           { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" }, "description": "ISO8601 upper bound (inclusive)." },

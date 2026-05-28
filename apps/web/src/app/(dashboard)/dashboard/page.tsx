@@ -14,7 +14,7 @@ interface Entity {
   status: string;
 }
 
-interface Contractor {
+interface Worker {
   id: string;
   onboardingStatus: string;
 }
@@ -69,11 +69,11 @@ function MetricCard({
 }
 
 export default async function DashboardPage() {
-  const [tenant, entities, contractorRes, payableRes, disbursementRes] = await Promise.all([
+  const [tenant, entities, workerRes, payableRes, disbursementRes] = await Promise.all([
     safeGet<Tenant | null>("/v1/tenant", null),
     safeGet<Entity[]>("/v1/entities", []),
-    safeGet<{ data: Contractor[]; pagination: { total: number } }>(
-      "/v1/contractors?limit=200",
+    safeGet<{ data: Worker[]; pagination: { total: number } }>(
+      "/v1/workers?limit=200",
       { data: [], pagination: { total: 0 } },
     ),
     safeGet<{ data: Payable[]; pagination: { total: number } }>(
@@ -87,7 +87,7 @@ export default async function DashboardPage() {
   ]);
 
   const activeEntities = entities.filter((e) => e.status === "active");
-  const activeContractors = contractorRes.data.filter((c) => c.onboardingStatus === "active");
+  const activeWorkers = workerRes.data.filter((c) => c.onboardingStatus === "active");
   const pendingPayables = payableRes.data.filter((p) => p.status === "pending");
   const pendingTotalCents = pendingPayables.reduce((s, p) => s + p.amountCents, 0);
 
@@ -121,11 +121,11 @@ export default async function DashboardPage() {
           href="/dashboard/disbursements"
         />
         <MetricCard
-          title="Active contractors"
-          value={String(activeContractors.length)}
-          sub={`${contractorRes.pagination.total} total`}
+          title="Active workers"
+          value={String(activeWorkers.length)}
+          sub={`${workerRes.pagination.total} total`}
           icon={Users}
-          href="/dashboard/contractors"
+          href="/dashboard/workers"
         />
         <MetricCard
           title="Active entities"
@@ -143,7 +143,7 @@ export default async function DashboardPage() {
         />
       </div>
 
-      {contractorRes.pagination.total === 0 && entities.length === 0 && (
+      {workerRes.pagination.total === 0 && entities.length === 0 && (
         <div className="bg-white rounded-xl border border-border p-8">
           <h2 className="text-base font-semibold mb-3">Get started</h2>
           <ol className="space-y-3 text-sm">
@@ -165,8 +165,8 @@ export default async function DashboardPage() {
                 2
               </span>
               <div>
-                <Link href="/dashboard/contractors/new" className="font-medium hover:underline">
-                  Add your first contractor
+                <Link href="/dashboard/workers/new" className="font-medium hover:underline">
+                  Add your first worker
                 </Link>
                 <p className="text-muted-foreground text-xs mt-0.5">
                   We&apos;ll send them an embedded onboarding link to complete W-9 + payout setup.
@@ -180,7 +180,7 @@ export default async function DashboardPage() {
               <div>
                 <span className="font-medium">Pay them</span>
                 <p className="text-muted-foreground text-xs mt-0.5">
-                  Use the &quot;Pay now&quot; button on the contractor detail page, or queue up payables and disburse a batch.
+                  Use the &quot;Pay now&quot; button on the worker detail page, or queue up payables and disburse a batch.
                 </p>
               </div>
             </li>

@@ -5,8 +5,8 @@ import { Receipt, Download } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 interface TaxRecord {
-  contractorId: string;
-  contractor: string;
+  workerId: string;
+  worker: string;
   entity: string;
   year: number;
   totalPaidCents: number;
@@ -14,10 +14,10 @@ interface TaxRecord {
 }
 
 const MOCK_TAX: TaxRecord[] = [
-  { contractorId: "c1", contractor: "Jane Smith", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 48_200_00, status: "filed" },
-  { contractorId: "c3", contractor: "Maria Garcia", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 31_500_00, status: "filed" },
-  { contractorId: "c4", contractor: "James Wilson", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 22_800_00, status: "filed" },
-  { contractorId: "c2", contractor: "John Doe", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 9_400_00, status: "not_filed" },
+  { workerId: "c1", worker: "Jane Smith", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 48_200_00, status: "filed" },
+  { workerId: "c3", worker: "Maria Garcia", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 31_500_00, status: "filed" },
+  { workerId: "c4", worker: "James Wilson", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 22_800_00, status: "filed" },
+  { workerId: "c2", worker: "John Doe", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 9_400_00, status: "not_filed" },
 ];
 
 const STATUS_STYLES: Record<string, string> = {
@@ -38,7 +38,7 @@ export default function TaxPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold">1099s</h1>
-          <p className="text-sm text-muted-foreground">1099-NEC filed for contractors earning $600+</p>
+          <p className="text-sm text-muted-foreground">1099-NEC filed for workers earning $600+</p>
         </div>
         <div className="flex gap-2">
           {YEARS.map((y) => (
@@ -60,7 +60,7 @@ export default function TaxPage() {
       {/* Summary */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-border p-4">
-          <div className="text-xs text-muted-foreground mb-1">Total contractors</div>
+          <div className="text-xs text-muted-foreground mb-1">Total workers</div>
           <div className="text-xl font-bold">{records.length}</div>
         </div>
         <div className="bg-white rounded-xl border border-border p-4">
@@ -78,7 +78,7 @@ export default function TaxPage() {
         <table className="w-full">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Contractor</th>
+              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Worker</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Entity</th>
               <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
               <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Total paid</th>
@@ -87,8 +87,8 @@ export default function TaxPage() {
           </thead>
           <tbody className="divide-y divide-border">
             {records.map((r) => (
-              <tr key={`${r.contractorId}-${r.entity}`} className="hover:bg-muted/20">
-                <td className="px-5 py-3.5 text-sm font-medium">{r.contractor}</td>
+              <tr key={`${r.workerId}-${r.entity}`} className="hover:bg-muted/20">
+                <td className="px-5 py-3.5 text-sm font-medium">{r.worker}</td>
                 <td className="px-5 py-3.5 text-sm text-muted-foreground">{r.entity}</td>
                 <td className="px-5 py-3.5">
                   <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[r.status]}`}>
@@ -110,7 +110,7 @@ export default function TaxPage() {
       </div>
 
       <p className="mt-4 text-xs text-muted-foreground">
-        1099-NEC forms are automatically generated and e-filed for all eligible contractors at year-end through Wingspan's tax filing service.
+        1099-NEC forms are automatically generated and e-filed for all eligible workers at year-end through Wingspan's tax filing service.
       </p>
     </div>
   );

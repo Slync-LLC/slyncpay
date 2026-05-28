@@ -16,10 +16,10 @@ const STEPS = [
   },
   {
     step: "02",
-    title: "Onboard your first contractor",
+    title: "Onboard your first worker",
     description:
-      "POST one API call with your contractor's name and email. SlyncPay sends them a branded W-9 collection and bank account setup flow. You get a webhook when they're ready to be paid.",
-    code: `POST /v1/contractors
+      "POST one API call with your worker's name and email. SlyncPay sends them a branded W-9 collection and bank account setup flow. You get a webhook when they're ready to be paid.",
+    code: `POST /v1/workers
 Authorization: Bearer spk_live_...
 
 {
@@ -39,7 +39,7 @@ Authorization: Bearer spk_live_...
 Idempotency-Key: shift-9021-payment
 
 {
-  "contractorId": "{{jane_id}}",
+  "workerId": "{{jane_id}}",
   "entityId": "{{az_entity_id}}",
   "externalReferenceId": "SHIFT-9021",
   "lineItems": [
@@ -49,16 +49,16 @@ Idempotency-Key: shift-9021-payment
   },
   {
     step: "04",
-    title: "Trigger disbursement — one call, all contractors",
+    title: "Trigger disbursement — one call, all workers",
     description:
-      "When you're ready to pay, one POST sweeps all pending payables for an entity into a payroll batch. Contractors get paid. Your webhook fires when each payment settles.",
+      "When you're ready to pay, one POST sweeps all pending payables for an entity into a payroll batch. Workers get paid. Your webhook fires when each payment settles.",
     code: `POST /v1/disbursements
 Idempotency-Key: az-batch-2026-04-19
 
 {
   "entityId": "{{az_entity_id}}"
 }
-// → 14 contractors paid. Total: $24,500.
+// → 14 workers paid. Total: $24,500.
 // webhook: disbursement.completed`,
   },
 ];
@@ -77,12 +77,12 @@ const FEATURES = [
     desc: "Every outgoing webhook is signed with your endpoint's secret key. Verify the SlyncPay-Signature header to ensure events aren't spoofed.",
   },
   {
-    title: "1099-NEC auto-filing",
-    desc: "At year-end, SlyncPay generates and e-files 1099-NEC forms for every contractor earning $600+, organized by entity. No spreadsheets, no manual uploads.",
+    title: "Tax form auto-filing (1099-NEC + W-2)",
+    desc: "At year-end, SlyncPay generates and e-files 1099-NEC for contractors and W-2 for employees, organized by entity. No spreadsheets, no manual uploads.",
   },
   {
     title: "Instant onboarding links",
-    desc: "GET /contractors/:id/onboarding-link returns a fresh Wingspan session URL for any contractor. Embed it in your app or send it directly.",
+    desc: "GET /workers/:id/onboarding-link returns a fresh Wingspan session URL for any worker. Embed it in your app or send it directly.",
   },
   {
     title: "Test mode built in",
@@ -110,7 +110,7 @@ export default function HowItWorksPage() {
         <h1 className="text-4xl font-bold tracking-tight mb-4">Four API calls to first payment</h1>
         <p className="text-xl text-muted-foreground">
           SlyncPay handles the Wingspan complexity so you don't have to.
-          Onboard contractors, create payables, and trigger disbursements with a clean REST API.
+          Onboard workers, create payables, and trigger disbursements with a clean REST API.
         </p>
       </section>
 

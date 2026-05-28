@@ -115,7 +115,7 @@ export function ActivityClient(props: {
             className="w-full px-2 py-1.5 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
           >
             <option value="">All types</option>
-            {["contractor", "engagement", "payable", "disbursement", "entity", "tenant"].map((t) => (
+            {["worker", "engagement", "payable", "disbursement", "entity", "tenant"].map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

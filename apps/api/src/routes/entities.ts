@@ -44,6 +44,7 @@ const createEntitySchema = z.object({
   name: z.string().min(1).max(100),
   ein: z.string().regex(/^\d{2}-\d{7}$/, "EIN must be in format XX-XXXXXXX"),
   state: z.string().length(2).toUpperCase().optional(),
+  taxType: z.enum(["w2", "1099"]).default("1099"),
 });
 
 entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
@@ -79,6 +80,7 @@ entityRoutes.post("/", zValidator("json", createEntitySchema), async (c) => {
       ein: encryptedEin,
       state: body.state ?? null,
       status: "pending",
+      taxType: body.taxType,
       environment,
     })
     .returning();
@@ -181,15 +183,15 @@ entityRoutes.delete("/:id", async (c) => {
     .limit(1);
   if (!entity) throw new NotFoundError("Entity");
 
-  // Safety: refuse delete if there are any contractors/payables/disbursements/engagements
-  const { engagements, payables, disbursements, contractors } = await import("@slyncpay/db");
+  // Safety: refuse delete if there are any workers/payables/disbursements/engagements
+  const { engagements, payables, disbursements, workers } = await import("@slyncpay/db");
   const { count } = await import("@slyncpay/db");
   const [[eng], [pay], [dis]] = await Promise.all([
     db.select({ n: count() }).from(engagements).where(eq(engagements.entityId, id)),
     db.select({ n: count() }).from(payables).where(eq(payables.entityId, id)),
     db.select({ n: count() }).from(disbursements).where(eq(disbursements.entityId, id)),
   ]);
-  void contractors;
+  void workers;
 
   const refs = Number(eng?.n ?? 0) + Number(pay?.n ?? 0) + Number(dis?.n ?? 0);
   if (refs > 0) {

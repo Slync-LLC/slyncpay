@@ -3,7 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, desc, count } from "@slyncpay/db";
 import { createHash } from "crypto";
-import { db, payables, engagements, tenantEntities, tenants, contractors, idempotencyKeys } from "@slyncpay/db";
+import { db, payables, engagements, tenantEntities, tenants, workers, idempotencyKeys } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, entityChildUserId } from "../lib/wingspan.js";
@@ -24,7 +24,7 @@ const lineItemSchema = z.object({
 
 const createPayableSchema = z.object({
   entityId: z.string().uuid(),
-  contractorId: z.string().uuid(),
+  workerId: z.string().uuid(),
   externalReferenceId: z.string().max(200).optional(),
   amountCents: z.number().int().positive(),
   dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dueDate must be YYYY-MM-DD"),
@@ -77,23 +77,23 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     .limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
 
-  // Contractor must be fully onboarded before they can be paid
-  const [contractor] = await db
-    .select({ id: contractors.id, onboardingStatus: contractors.onboardingStatus })
-    .from(contractors)
+  // Worker must be fully onboarded before they can be paid
+  const [worker] = await db
+    .select({ id: workers.id, onboardingStatus: workers.onboardingStatus })
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, body.contractorId),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, body.workerId),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
 
-  if (!contractor) throw new NotFoundError("Contractor");
-  if (contractor.onboardingStatus !== "active") {
+  if (!worker) throw new NotFoundError("Worker");
+  if (worker.onboardingStatus !== "active") {
     throw new ValidationError(
-      `Contractor onboarding is not complete (status: ${contractor.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
+      `Worker onboarding is not complete (status: ${worker.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
     );
   }
 
@@ -104,7 +104,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     .where(
       and(
         eq(engagements.tenantId, tenantId),
-        eq(engagements.contractorId, body.contractorId),
+        eq(engagements.workerId, body.workerId),
         eq(engagements.entityId, body.entityId),
         eq(engagements.environment, environment),
       ),
@@ -113,7 +113,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
 
   if (!engagement) {
     throw new ValidationError(
-      `No engagement found for contractor ${body.contractorId} + entity ${body.entityId}. Call POST /v1/contractors/:id/engagements first.`,
+      `No engagement found for worker ${body.workerId} + entity ${body.entityId}. Call POST /v1/workers/:id/engagements first.`,
     );
   }
 
@@ -173,7 +173,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     .values({
       tenantId,
       entityId: body.entityId,
-      contractorId: body.contractorId,
+      workerId: body.workerId,
       engagementId: engagement.id,
       externalReferenceId: body.externalReferenceId ?? null,
       amountCents: body.amountCents,
@@ -199,7 +199,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     resourceType: "payable",
     resourceId: payable.id,
     metadata: {
-      contractorId: body.contractorId,
+      workerId: body.workerId,
       entityId: body.entityId,
       amountCents: body.amountCents,
     },
@@ -219,7 +219,7 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
 payableRoutes.get("/", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const entityId = c.req.query("entityId");
-  const contractorId = c.req.query("contractorId");
+  const workerId = c.req.query("workerId");
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1", 10);
   const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 100);
@@ -228,7 +228,7 @@ payableRoutes.get("/", async (c) => {
   type PayableStatus = "draft" | "pending" | "processing" | "paid" | "failed" | "cancelled";
   const conditions = [eq(payables.tenantId, tenantId), eq(payables.environment, environment)];
   if (entityId) conditions.push(eq(payables.entityId, entityId));
-  if (contractorId) conditions.push(eq(payables.contractorId, contractorId));
+  if (workerId) conditions.push(eq(payables.workerId, workerId));
   if (status) conditions.push(eq(payables.status, status as PayableStatus));
 
   const rows = await db

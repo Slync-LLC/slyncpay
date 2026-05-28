@@ -16,8 +16,8 @@ const companySchema = z.object({
 type CompanyValues = z.infer<typeof companySchema>;
 
 const PLAN_LABEL: Record<string, string> = {
-  starter: "Starter — 1 entity, 50 contractors",
-  growth: "Growth — 10 entities, 500 contractors",
+  starter: "Starter — 1 entity, 50 workers",
+  growth: "Growth — 10 entities, 500 workers",
   enterprise: "Enterprise — unlimited",
 };
 

@@ -10,7 +10,7 @@ import { ApiError } from "./lib/errors.js";
 import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { entityRoutes } from "./routes/entities.js";
-import { contractorRoutes } from "./routes/contractors.js";
+import { workerRoutes } from "./routes/workers.js";
 import { payableRoutes } from "./routes/payables.js";
 import { disbursementRoutes } from "./routes/disbursements.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -40,7 +40,7 @@ app.use(
 app.route("/v1/auth", authRoutes);
 app.route("/v1/tenant", tenantRoutes);
 app.route("/v1/entities", entityRoutes);
-app.route("/v1/contractors", contractorRoutes);
+app.route("/v1/workers", workerRoutes);
 app.route("/v1/payables", payableRoutes);
 app.route("/v1/disbursements", disbursementRoutes);
 app.route("/v1/admin", adminRoutes);

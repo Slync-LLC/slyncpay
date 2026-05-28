@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Webhook, Plus, Trash2, Copy, Check, AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
 
 const EVENT_TYPES = [
-  "contractor.created",
-  "contractor.onboarding_complete",
+  "worker.created",
+  "worker.onboarding_complete",
   "payable.created",
   "payable.paid",
   "payable.failed",

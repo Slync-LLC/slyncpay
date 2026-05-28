@@ -14,7 +14,7 @@ type Stats = {
     cancelled: number;
     newThisMonth: number;
   };
-  contractors: number;
+  workers: number;
   entities: number;
   payables: { count: number; totalCents: number; feesCents: number };
   disbursements: { count: number; totalCents: number };
@@ -106,7 +106,7 @@ export default async function AdminDashboardPage() {
           sublabel={`${stats.tenants.newThisMonth} new this month`}
           icon={Users}
         />
-        <Kpi label="Contractors" value={stats.contractors.toLocaleString()} icon={UserCheck} />
+        <Kpi label="Workers" value={stats.workers.toLocaleString()} icon={UserCheck} />
         <Kpi
           label="Payment Volume"
           value={formatDollars(stats.payables.totalCents)}

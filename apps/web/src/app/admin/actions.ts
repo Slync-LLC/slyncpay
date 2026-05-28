@@ -167,13 +167,13 @@ export async function updateTenantStatus(tenantId: string, status: "active" | "s
   if (!res.ok) throw new Error("Failed to update tenant status");
 }
 
-export async function getContractorOnboardingLink(
-  contractorId: string,
+export async function getWorkerOnboardingLink(
+  workerId: string,
 ): Promise<{ ok: true; url: string; expiresAt: string; environment: string } | { ok: false; error: string }> {
   const adminToken = cookies().get(ADMIN_COOKIE)?.value;
   if (!adminToken) return { ok: false, error: "Not signed in" };
 
-  const res = await fetch(`${API_URL}/v1/admin/contractors/${contractorId}/onboarding-link`, {
+  const res = await fetch(`${API_URL}/v1/admin/workers/${workerId}/onboarding-link`, {
     method: "POST",
     headers: { Authorization: `Bearer ${adminToken}` },
     cache: "no-store",

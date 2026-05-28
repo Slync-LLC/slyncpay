@@ -6,14 +6,14 @@ const PLANS = [
     name: "Starter",
     price: "$149",
     billing: "/mo",
-    description: "Perfect for teams getting started with contractor payments.",
+    description: "Perfect for teams getting started with worker payments.",
     disbursementFee: "0.8% + $0.25/tx",
     highlight: false,
     cta: "Start for free",
     ctaHref: "/sign-up",
     features: {
       entities: "1 entity / EIN",
-      contractors: "50 active contractors",
+      workers: "50 active workers",
       apiKeys: "2 API keys",
       webhooks: "1 webhook endpoint",
       teamMembers: "1 team member",
@@ -35,7 +35,7 @@ const PLANS = [
     ctaHref: "/sign-up?plan=growth",
     features: {
       entities: "10 entities / EINs",
-      contractors: "500 active contractors",
+      workers: "500 active workers",
       apiKeys: "10 API keys",
       webhooks: "5 webhook endpoints",
       teamMembers: "5 team members",
@@ -57,7 +57,7 @@ const PLANS = [
     ctaHref: "mailto:sales@slyncpay.com",
     features: {
       entities: "Unlimited entities",
-      contractors: "Unlimited contractors",
+      workers: "Unlimited workers",
       apiKeys: "Unlimited API keys",
       webhooks: "Unlimited endpoints",
       teamMembers: "Unlimited members",
@@ -72,14 +72,14 @@ const PLANS = [
 
 const FEATURE_ROWS = [
   { key: "entities", label: "Entities / EINs" },
-  { key: "contractors", label: "Active contractors" },
+  { key: "workers", label: "Active workers" },
   { key: "disbursementFee", label: "Disbursement fee", isTop: true },
   { key: "apiKeys", label: "API keys" },
   { key: "webhooks", label: "Webhook endpoints" },
   { key: "teamMembers", label: "Team members" },
   { key: "branding", label: "Custom branding" },
   { key: "sso", label: "SSO / SAML" },
-  { key: "1099", label: "1099-NEC filing" },
+  { key: "1099", label: "Tax form filing (1099-NEC / W-2)" },
   { key: "support", label: "Support" },
 ];
 
@@ -187,16 +187,16 @@ export default function PricingPage() {
           <div className="space-y-5">
             {[
               {
-                q: "What counts as an active contractor?",
-                a: "An active contractor is any contractor in the onboarded state — W-9 completed and payout method set up. Invited but incomplete contractors don't count toward your limit.",
+                q: "What counts as an active worker?",
+                a: "An active worker is any worker in the onboarded state — W-9 completed and payout method set up. Invited but incomplete workers don't count toward your limit.",
               },
               {
                 q: "How is the disbursement fee calculated?",
-                a: "The fee is applied per disbursement batch, not per contractor. If you disburse to 50 contractors in one batch, you pay one fee on the total batch amount.",
+                a: "The fee is applied per disbursement batch, not per worker. If you disburse to 50 workers in one batch, you pay one fee on the total batch amount.",
               },
               {
                 q: "Do you charge for 1099 filing?",
-                a: "No — 1099-NEC e-filing is included on all plans. We file automatically at year-end for all eligible contractors (earning $600+).",
+                a: "No — tax form filing is included on all plans. 1099-NEC for contractor workers (earning $600+) and W-2 for employee workers. We file automatically at year-end.",
               },
               {
                 q: "Can I change plans?",

@@ -1,6 +1,6 @@
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
 import { notFound } from "next/navigation";
-import { ContractorDetailClient } from "./detail-client";
+import { WorkerDetailClient } from "./detail-client";
 
 type W9Prefill = {
   middleName?: string | null;
@@ -15,7 +15,7 @@ type W9Prefill = {
   postalCode?: string | null;
 };
 
-type Contractor = {
+type Worker = {
   id: string;
   externalId: string;
   email: string;
@@ -30,7 +30,7 @@ type Contractor = {
 type Engagement = {
   id: string;
   engagementId: string;
-  contractorId: string;
+  workerId: string;
   entityId: string;
   entityName: string | null;
   status: string;
@@ -64,22 +64,22 @@ async function safeGet<T>(path: string): Promise<T | null> {
   }
 }
 
-export default async function ContractorDetailPage({ params }: { params: { id: string } }) {
-  const contractor = await safeGet<Contractor>(`/v1/contractors/${params.id}`);
-  if (!contractor) notFound();
+export default async function WorkerDetailPage({ params }: { params: { id: string } }) {
+  const worker = await safeGet<Worker>(`/v1/workers/${params.id}`);
+  if (!worker) notFound();
 
   const [engagementsRaw, entitiesRaw, payablesRaw, onboardingLink] = await Promise.all([
-    safeGet<Engagement[]>(`/v1/contractors/${params.id}/engagements`),
+    safeGet<Engagement[]>(`/v1/workers/${params.id}/engagements`),
     safeGet<Entity[]>(`/v1/entities`),
-    safeGet<{ data: Payable[] }>(`/v1/payables?contractorId=${params.id}&limit=50`),
-    contractor.onboardingStatus !== "active"
-      ? safeGet<OnboardingLink>(`/v1/contractors/${params.id}/onboarding-link`)
+    safeGet<{ data: Payable[] }>(`/v1/payables?workerId=${params.id}&limit=50`),
+    worker.onboardingStatus !== "active"
+      ? safeGet<OnboardingLink>(`/v1/workers/${params.id}/onboarding-link`)
       : null,
   ]);
 
   return (
-    <ContractorDetailClient
-      contractor={contractor}
+    <WorkerDetailClient
+      worker={worker}
       engagements={engagementsRaw ?? []}
       entities={entitiesRaw ?? []}
       payables={payablesRaw?.data ?? []}

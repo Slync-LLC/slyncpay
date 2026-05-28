@@ -12,7 +12,7 @@ type Tenant = {
   status: string;
   plan: string;
   createdAt: string;
-  contractorsCount: number;
+  workersCount: number;
   payablesCount: number;
   payablesTotalCents: number;
   disbursementsCount: number;
@@ -64,7 +64,7 @@ export default async function AdminTenantsPage() {
               <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Tenant</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Plan</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-              <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Contractors</th>
+              <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Workers</th>
               <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Payables</th>
               <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Volume</th>
               <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Joined</th>
@@ -96,7 +96,7 @@ export default async function AdminTenantsPage() {
                     {t.status}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-right tabular-nums">{t.contractorsCount}</td>
+                <td className="px-4 py-3 text-right tabular-nums">{t.workersCount}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{t.payablesCount}</td>
                 <td className="px-4 py-3 text-right tabular-nums">{fmt(t.payablesTotalCents)}</td>
                 <td className="px-4 py-3 text-muted-foreground text-xs">

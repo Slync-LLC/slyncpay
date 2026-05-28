@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { apiServerJson, ServerApiError } from "@/lib/api-server";
 
 interface CreatePayableInput {
-  contractorId: string;
+  workerId: string;
   entityId: string;
   externalReferenceId: string;
   dueDate: string;
@@ -20,7 +20,7 @@ export async function createPayable(input: CreatePayableInput): Promise<
     const created = await apiServerJson<{ id: string }>(
       "/v1/payables",
       {
-        contractorId: input.contractorId,
+        workerId: input.workerId,
         entityId: input.entityId,
         externalReferenceId: input.externalReferenceId,
         dueDate: input.dueDate,

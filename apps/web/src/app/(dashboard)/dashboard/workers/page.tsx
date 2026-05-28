@@ -3,7 +3,7 @@ import { Users, Plus, ChevronRight } from "lucide-react";
 import { apiServerGet } from "@/lib/api-server";
 import { OnboardingLinkButton } from "./onboarding-link-button";
 
-interface Contractor {
+interface Worker {
   id: string;
   externalId: string;
   email: string;
@@ -13,8 +13,8 @@ interface Contractor {
   createdAt: string;
 }
 
-interface ContractorList {
-  data: Contractor[];
+interface WorkerList {
+  data: Worker[];
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }
 
@@ -34,19 +34,19 @@ const STATUS_LABELS: Record<string, string> = {
   inactive: "Inactive",
 };
 
-export default async function ContractorsPage({ searchParams }: { searchParams: { status?: string } }) {
+export default async function WorkersPage({ searchParams }: { searchParams: { status?: string } }) {
   const qs = new URLSearchParams();
   qs.set("limit", "100");
   if (searchParams.status) qs.set("status", searchParams.status);
 
-  let result: ContractorList = { data: [], pagination: { page: 1, limit: 100, total: 0, hasMore: false } };
+  let result: WorkerList = { data: [], pagination: { page: 1, limit: 100, total: 0, hasMore: false } };
   try {
-    result = await apiServerGet<ContractorList>(`/v1/contractors?${qs.toString()}`);
+    result = await apiServerGet<WorkerList>(`/v1/workers?${qs.toString()}`);
   } catch {
     // empty state below
   }
 
-  const { data: contractors, pagination } = result;
+  const { data: workers, pagination } = result;
 
   const FILTERS = [
     { value: "", label: "All" },
@@ -61,24 +61,24 @@ export default async function ContractorsPage({ searchParams }: { searchParams: 
     <div className="p-8 max-w-6xl">
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Contractors</h1>
+          <h1 className="text-2xl font-bold">Workers</h1>
           <p className="text-sm text-muted-foreground">
-            {pagination.total === 0 ? "No contractors yet" : `${pagination.total} total`}
+            {pagination.total === 0 ? "No workers yet" : `${pagination.total} total`}
           </p>
         </div>
         <Link
-          href="/dashboard/contractors/new"
+          href="/dashboard/workers/new"
           className="flex items-center gap-1.5 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
         >
           <Plus className="h-4 w-4" />
-          Add contractor
+          Add worker
         </Link>
       </div>
 
       <div className="flex items-center gap-1 mb-5">
         {FILTERS.map(({ value, label }) => {
           const active = (searchParams.status ?? "") === value;
-          const href = value ? `/dashboard/contractors?status=${value}` : "/dashboard/contractors";
+          const href = value ? `/dashboard/workers?status=${value}` : "/dashboard/workers";
           return (
             <Link
               key={value || "all"}
@@ -96,20 +96,20 @@ export default async function ContractorsPage({ searchParams }: { searchParams: 
       </div>
 
       <div className="bg-white rounded-xl border border-border overflow-hidden">
-        {contractors.length === 0 ? (
+        {workers.length === 0 ? (
           <div className="p-12 text-center">
             <Users className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
-            <h2 className="text-base font-semibold mb-1">No contractors yet</h2>
+            <h2 className="text-base font-semibold mb-1">No workers yet</h2>
             <p className="text-sm text-muted-foreground mb-6">
-              {searchParams.status ? "None match this filter." : "Add your first contractor to get started."}
+              {searchParams.status ? "None match this filter." : "Add your first worker to get started."}
             </p>
             {!searchParams.status && (
               <Link
-                href="/dashboard/contractors/new"
+                href="/dashboard/workers/new"
                 className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
               >
                 <Plus className="h-4 w-4" />
-                Add contractor
+                Add worker
               </Link>
             )}
           </div>
@@ -126,7 +126,7 @@ export default async function ContractorsPage({ searchParams }: { searchParams: 
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {contractors.map((c) => {
+              {workers.map((c) => {
                 const fullName = [c.firstName, c.lastName].filter(Boolean).join(" ") || "—";
                 return (
                   <tr key={c.id} className="hover:bg-muted/20 transition-colors">
@@ -148,12 +148,12 @@ export default async function ContractorsPage({ searchParams }: { searchParams: 
                     <td className="px-5 py-3.5 text-right">
                       <div className="inline-flex items-center gap-4">
                         <OnboardingLinkButton
-                          contractorId={c.id}
-                          contractorEmail={c.email}
+                          workerId={c.id}
+                          workerEmail={c.email}
                           disabled={c.onboardingStatus === "active" || c.onboardingStatus === "inactive"}
                         />
                         <Link
-                          href={`/dashboard/contractors/${c.id}`}
+                          href={`/dashboard/workers/${c.id}`}
                           className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                         >
                           View <ChevronRight className="h-3 w-3" />

@@ -2,15 +2,15 @@
 
 import { useState, useTransition } from "react";
 import { Link2, Copy, Check, ExternalLink, X, Mail } from "lucide-react";
-import { getContractorOnboardingLink } from "./actions";
+import { getWorkerOnboardingLink } from "./actions";
 
 export function OnboardingLinkButton({
-  contractorId,
-  contractorEmail,
+  workerId,
+  workerEmail,
   disabled,
 }: {
-  contractorId: string;
-  contractorEmail: string;
+  workerId: string;
+  workerEmail: string;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -24,7 +24,7 @@ export function OnboardingLinkButton({
     setOpen(true);
     setLink(null);
     start(async () => {
-      const res = await getContractorOnboardingLink(contractorId);
+      const res = await getWorkerOnboardingLink(workerId);
       if (!res.ok) {
         setErr(res.error);
         return;
@@ -47,7 +47,7 @@ export function OnboardingLinkButton({
   }
 
   const mailto = link
-    ? `mailto:${contractorEmail}?subject=${encodeURIComponent("Finish setting up your contractor account")}&body=${encodeURIComponent(`Hi,\n\nPlease finish onboarding by visiting the link below. It expires in 60 minutes — let me know if you need a fresh one.\n\n${link.url}\n\nThanks!`)}`
+    ? `mailto:${workerEmail}?subject=${encodeURIComponent("Finish setting up your worker account")}&body=${encodeURIComponent(`Hi,\n\nPlease finish onboarding by visiting the link below. It expires in 60 minutes — let me know if you need a fresh one.\n\n${link.url}\n\nThanks!`)}`
     : "#";
 
   return (
@@ -75,7 +75,7 @@ export function OnboardingLinkButton({
               <div>
                 <h2 className="text-sm font-semibold">Onboarding link</h2>
                 <p className="text-xs text-muted-foreground mt-1">
-                  For {contractorEmail}. Expires in 60 minutes.
+                  For {workerEmail}. Expires in 60 minutes.
                 </p>
               </div>
               <button

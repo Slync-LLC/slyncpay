@@ -62,13 +62,13 @@ export default async function DisbursementsPage() {
             <Banknote className="h-8 w-8 text-muted-foreground mx-auto mb-3" />
             <h2 className="text-base font-semibold mb-1">No disbursements yet</h2>
             <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-              Pay a contractor directly from their detail page, or queue payables and disburse a whole entity at once.
+              Pay a worker directly from their detail page, or queue payables and disburse a whole entity at once.
             </p>
             <Link
-              href="/dashboard/contractors"
+              href="/dashboard/workers"
               className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
             >
-              Browse contractors
+              Browse workers
             </Link>
           </div>
         ) : (

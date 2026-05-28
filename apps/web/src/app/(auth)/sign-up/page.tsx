@@ -21,7 +21,7 @@ export default function SignUpPage() {
   return (
     <div className="bg-white rounded-xl border border-border p-8 shadow-sm">
       <h1 className="text-xl font-bold mb-1">Create your account</h1>
-      <p className="text-sm text-muted-foreground mb-6">Get started with contractor payments in minutes.</p>
+      <p className="text-sm text-muted-foreground mb-6">Get started with worker payments in minutes.</p>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (

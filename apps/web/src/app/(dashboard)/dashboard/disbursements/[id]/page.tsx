@@ -4,7 +4,7 @@ import { ChevronLeft } from "lucide-react";
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
 import { DisbursementDetailClient } from "./detail-client";
 
-interface ContractorOnPayable {
+interface WorkerOnPayable {
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -14,11 +14,11 @@ interface ContractorOnPayable {
 
 interface PayableInDisbursement {
   id: string;
-  contractorId: string;
+  workerId: string;
   amountCents: number;
   status: string;
   externalReferenceId: string | null;
-  contractor: ContractorOnPayable | null;
+  worker: WorkerOnPayable | null;
 }
 
 interface DisbursementDetail {

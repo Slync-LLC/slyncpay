@@ -19,10 +19,10 @@ export default function LandingPage() {
       {/* Hero */}
       <section className="max-w-4xl mx-auto px-6 pt-24 pb-16 text-center">
         <h1 className="text-5xl font-bold tracking-tight text-foreground mb-6">
-          Contractor payments,<br />handled.
+          Worker payments,<br />handled.
         </h1>
         <p className="text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-          SlyncPay gives your engineering team a single API to onboard contractors, send payments,
+          SlyncPay gives your engineering team a single API to onboard workers, send payments,
           and file 1099s — backed by enterprise-grade payment rails.
         </p>
         <div className="flex items-center justify-center gap-4">
@@ -38,8 +38,8 @@ export default function LandingPage() {
       {/* Code snippet */}
       <section className="max-w-3xl mx-auto px-6 pb-24">
         <div className="bg-zinc-950 rounded-xl p-6 text-sm font-mono text-zinc-300 overflow-x-auto">
-          <div className="text-zinc-500 mb-3">{"// Onboard a contractor in one call"}</div>
-          <pre>{`POST /v1/contractors
+          <div className="text-zinc-500 mb-3">{"// Onboard a worker in one call"}</div>
+          <pre>{`POST /v1/workers
 Authorization: Bearer spk_live_...
 
 {
@@ -58,9 +58,9 @@ Authorization: Bearer spk_live_...
           <h2 className="text-3xl font-bold text-center mb-16">Three API calls to first payment</h2>
           <div className="grid md:grid-cols-3 gap-8">
             {[
-              { step: "01", title: "Onboard", desc: "POST one contractor. They receive a branded W-9 + payout setup flow. Onboard once, pay forever." },
+              { step: "01", title: "Onboard", desc: "POST one worker. They receive a branded W-9 + payout setup flow. Onboard once, pay forever." },
               { step: "02", title: "Create payable", desc: "When work happens, create a payable. Attach it to the right legal entity for correct EIN + 1099 filing." },
-              { step: "03", title: "Disburse", desc: "One call sweeps all pending payables into a payroll batch. Contractors get paid instantly." },
+              { step: "03", title: "Disburse", desc: "One call sweeps all pending payables into a payroll batch. Workers get paid instantly." },
             ].map(({ step, title, desc }) => (
               <div key={step} className="bg-white rounded-xl p-6 border border-border">
                 <div className="text-primary font-mono text-sm font-bold mb-3">{step}</div>
@@ -78,8 +78,8 @@ Authorization: Bearer spk_live_...
         <p className="text-muted-foreground mb-12">No hidden fees. Pay as you grow.</p>
         <div className="grid md:grid-cols-3 gap-6">
           {[
-            { plan: "Starter", price: "$149", fee: "0.8% per disbursement", note: "1 entity, 50 contractors" },
-            { plan: "Growth", price: "$499", fee: "0.5% per disbursement", note: "10 entities, 500 contractors", highlight: true },
+            { plan: "Starter", price: "$149", fee: "0.8% per disbursement", note: "1 entity, 50 workers" },
+            { plan: "Growth", price: "$499", fee: "0.5% per disbursement", note: "10 entities, 500 workers", highlight: true },
             { plan: "Enterprise", price: "Custom", fee: "Volume pricing", note: "Unlimited everything" },
           ].map(({ plan, price, fee, note, highlight }) => (
             <div key={plan} className={`rounded-xl p-6 border ${highlight ? "border-primary bg-primary/5" : "border-border"}`}>

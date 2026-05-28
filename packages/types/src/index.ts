@@ -28,7 +28,7 @@ export const PLAN_CONFIG: Record<
     monthlyFeeCents: number;
     disbursementFeeBps: number;
     perTxFeeCents: number;
-    maxContractors: number | null;
+    maxWorkers: number | null;
     maxEntities: number | null;
     customBranding: boolean;
     maxApiKeys: number | null;
@@ -40,7 +40,7 @@ export const PLAN_CONFIG: Record<
     monthlyFeeCents: 14900,
     disbursementFeeBps: 80,
     perTxFeeCents: 25,
-    maxContractors: 50,
+    maxWorkers: 50,
     maxEntities: 1,
     customBranding: false,
     maxApiKeys: 2,
@@ -51,7 +51,7 @@ export const PLAN_CONFIG: Record<
     monthlyFeeCents: 49900,
     disbursementFeeBps: 50,
     perTxFeeCents: 15,
-    maxContractors: 500,
+    maxWorkers: 500,
     maxEntities: 10,
     customBranding: true,
     maxApiKeys: 10,
@@ -62,7 +62,7 @@ export const PLAN_CONFIG: Record<
     monthlyFeeCents: 0,
     disbursementFeeBps: 30,
     perTxFeeCents: 0,
-    maxContractors: null,
+    maxWorkers: null,
     maxEntities: null,
     customBranding: true,
     maxApiKeys: null,
@@ -103,9 +103,9 @@ export interface TenantEntity {
   updatedAt: Date;
 }
 
-// ─── Contractor ───────────────────────────────────────────────────────────────
+// ─── Worker ───────────────────────────────────────────────────────────────
 
-export interface Contractor {
+export interface Worker {
   id: string;
   tenantId: string;
   externalId: string;
@@ -124,7 +124,7 @@ export interface Contractor {
 export interface Engagement {
   id: string;
   tenantId: string;
-  contractorId: string;
+  workerId: string;
   entityId: string;
   wingspanPayerPayeeEngagementId: string;
   status: "pending" | "active" | "inactive";
@@ -146,7 +146,7 @@ export interface Payable {
   id: string;
   tenantId: string;
   entityId: string;
-  contractorId: string;
+  workerId: string;
   engagementId: string;
   externalReferenceId: string | null;
   amountCents: number;
@@ -199,7 +199,7 @@ export interface PaginatedResponse<T> {
 // ─── Webhook events ───────────────────────────────────────────────────────────
 
 export type WebhookEventType =
-  | "contractor.created"
+  | "worker.created"
   | "contractor.status_changed"
   | "payable.created"
   | "payable.paid"

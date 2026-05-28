@@ -22,7 +22,7 @@ type Tenant = {
   createdAt: string;
   provisionedAt: string | null;
   stats: {
-    contractorsCount: number;
+    workersCount: number;
     payablesCount: number;
     payablesTotalCents: number;
     feesCollectedCents: number;
@@ -32,7 +32,7 @@ type Tenant = {
   };
 };
 
-type Contractor = {
+type Worker = {
   id: string;
   firstName: string | null;
   lastName: string | null;
@@ -71,6 +71,7 @@ type Entity = {
   state: string | null;
   status: string;
   environment?: string;
+  taxType?: "1099" | "w2";
   wingspanChildUserId: string | null;
   wingspanChildUserEmail?: string | null;
   wingspanChildUserIdSandbox?: string | null;
@@ -149,10 +150,10 @@ export default async function TenantDetailPage({
   const tab = searchParams.tab ?? "overview";
   const headers = { Authorization: `Bearer ${adminToken}` };
 
-  const [tenantRes, contractorsRes, payablesRes, disbursementsRes, entitiesRes, apiKeysRes] = await Promise.all([
+  const [tenantRes, workersRes, payablesRes, disbursementsRes, entitiesRes, apiKeysRes] = await Promise.all([
     fetch(`${API_URL}/v1/admin/tenants/${params.id}`, { headers, cache: "no-store" }),
-    tab === "contractors"
-      ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/contractors`, { headers, cache: "no-store" })
+    tab === "workers"
+      ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/workers`, { headers, cache: "no-store" })
       : null,
     tab === "payables"
       ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/payables`, { headers, cache: "no-store" })
@@ -172,7 +173,7 @@ export default async function TenantDetailPage({
   if (!tenantRes.ok) redirect("/admin/tenants");
 
   const tenant: Tenant = await tenantRes.json();
-  const contractorsData: Contractor[] = contractorsRes?.ok ? await contractorsRes.json() : [];
+  const workersData: Worker[] = workersRes?.ok ? await workersRes.json() : [];
   const payablesData: Payable[] = payablesRes?.ok ? await payablesRes.json() : [];
   const disbursementsData: Disbursement[] = disbursementsRes?.ok ? await disbursementsRes.json() : [];
   const entitiesData: Entity[] = entitiesRes?.ok ? await entitiesRes.json() : [];
@@ -180,7 +181,7 @@ export default async function TenantDetailPage({
 
   const tabs = [
     { id: "overview", label: "Overview" },
-    { id: "contractors", label: `Contractors (${tenant.stats.contractorsCount})` },
+    { id: "workers", label: `Workers (${tenant.stats.workersCount})` },
     { id: "entities", label: `Entities (${tenant.stats.entitiesCount})` },
     { id: "payables", label: `Payables (${tenant.stats.payablesCount})` },
     { id: "disbursements", label: `Disbursements (${tenant.stats.disbursementsCount})` },
@@ -240,7 +241,7 @@ export default async function TenantDetailPage({
       {tab === "overview" && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Kpi label="Contractors" value={tenant.stats.contractorsCount} icon={Users} />
+            <Kpi label="Workers" value={tenant.stats.workersCount} icon={Users} />
             <Kpi label="Entities" value={tenant.stats.entitiesCount} icon={Building2} />
             <Kpi label="Payables" value={tenant.stats.payablesCount} icon={FileText} />
             <Kpi label="Disbursements" value={tenant.stats.disbursementsCount} icon={Banknote} />
@@ -307,8 +308,8 @@ export default async function TenantDetailPage({
         </div>
       )}
 
-      {/* Contractors tab */}
-      {tab === "contractors" && (
+      {/* Workers tab */}
+      {tab === "workers" && (
         <div className="bg-white border border-border rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -322,10 +323,10 @@ export default async function TenantDetailPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {contractorsData.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No contractors.</td></tr>
+              {workersData.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No workers.</td></tr>
               )}
-              {contractorsData.map((c) => (
+              {workersData.map((c) => (
                 <tr key={c.id}>
                   <td className="px-4 py-3">{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
@@ -342,8 +343,8 @@ export default async function TenantDetailPage({
                   <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right">
                     <OnboardingLinkButton
-                      contractorId={c.id}
-                      contractorEmail={c.email}
+                      workerId={c.id}
+                      workerEmail={c.email}
                       disabled={c.onboardingStatus === "active" || c.onboardingStatus === "inactive"}
                     />
                   </td>
@@ -368,6 +369,7 @@ export default async function TenantDetailPage({
                 <tr className="border-b border-border bg-muted/30">
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Env</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Tax type</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">EIN</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                   <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Wingspan child user</th>
@@ -375,18 +377,24 @@ export default async function TenantDetailPage({
               </thead>
               <tbody className="divide-y divide-border">
                 {entitiesData.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No entities.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No entities.</td></tr>
                 )}
                 {entitiesData.map((e) => {
                   const isSandbox = e.environment === "test";
                   const childId = isSandbox ? e.wingspanChildUserIdSandbox : e.wingspanChildUserId;
                   const childEmail = isSandbox ? e.wingspanChildUserEmailSandbox : e.wingspanChildUserEmail;
+                  const taxType = e.taxType ?? "1099";
                   return (
                     <tr key={e.id}>
                       <td className="px-4 py-3 font-medium">{e.name}</td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2 py-0.5 rounded text-xs ${isSandbox ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
                           {e.environment ?? "live"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 rounded text-xs ${taxType === "w2" ? "bg-purple-100 text-purple-700" : "bg-blue-100 text-blue-700"}`}>
+                          {taxType === "w2" ? "W-2" : "1099"}
                         </span>
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{e.ein ? "••••••" + e.ein.slice(-4) : "—"}</td>

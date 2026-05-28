@@ -2,24 +2,24 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, desc, count, inArray } from "@slyncpay/db";
-import { db, contractors, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys } from "@slyncpay/db";
+import { db, workers, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys } from "@slyncpay/db";
 import { createHash } from "crypto";
 import { encrypt as encryptSecret, decrypt as decryptSecret, ssnLast4 } from "../lib/crypto.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
-import { repairContractorWingspanUserId, syncContractorToWingspan } from "../lib/contractor-repair.js";
+import { repairWorkerWingspanUserId, syncWorkerToWingspan } from "../lib/worker-repair.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
-import { toContractorDTO, toEngagementDTO, toPayableDTO, toDisbursementDTO } from "../lib/dto.js";
+import { toWorkerDTO, toEngagementDTO, toPayableDTO, toDisbursementDTO } from "../lib/dto.js";
 import { logAudit } from "../lib/audit.js";
 import { clientIp } from "../lib/rate-limit.js";
 
-export const contractorRoutes = new Hono();
-contractorRoutes.use("*", authMiddleware);
+export const workerRoutes = new Hono();
+workerRoutes.use("*", authMiddleware);
 
-const createContractorSchema = z.object({
+const createWorkerSchema = z.object({
   externalId: z.string().min(1).max(100),
   email: z.string().email(),
   firstName: z.string().max(100).optional(),
@@ -42,11 +42,11 @@ const createContractorSchema = z.object({
   ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "ssn must be 9 digits").optional(),
 });
 
-contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c) => {
+workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   const { tenantId, environment } = c.var.auth;
   const body = c.req.valid("json");
 
-  // Check plan contractor limit
+  // Check plan worker limit
   const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   if (!tenant) throw new NotFoundError("Tenant");
 
@@ -72,34 +72,34 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
   }
 
   const planConfig = PLAN_CONFIG[tenant.plan as TenantPlan];
-  if (planConfig.maxContractors !== null) {
+  if (planConfig.maxWorkers !== null) {
     const [countResult] = await db
       .select({ value: count() })
-      .from(contractors)
-      .where(and(eq(contractors.tenantId, tenantId), eq(contractors.environment, environment)));
-    const contractorCount = countResult?.value ?? 0;
+      .from(workers)
+      .where(and(eq(workers.tenantId, tenantId), eq(workers.environment, environment)));
+    const workerCount = countResult?.value ?? 0;
 
-    if (contractorCount >= planConfig.maxContractors) {
+    if (workerCount >= planConfig.maxWorkers) {
       throw new PlanLimitError(
-        `Your ${tenant.plan} plan allows a maximum of ${planConfig.maxContractors} contractors.`,
+        `Your ${tenant.plan} plan allows a maximum of ${planConfig.maxWorkers} workers.`,
       );
     }
   }
 
   // Check duplicate externalId (within this env)
   const [existing] = await db
-    .select({ id: contractors.id })
-    .from(contractors)
+    .select({ id: workers.id })
+    .from(workers)
     .where(
       and(
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
-        eq(contractors.externalId, body.externalId),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
+        eq(workers.externalId, body.externalId),
       ),
     )
     .limit(1);
 
-  if (existing) throw new ConflictError(`Contractor with externalId ${body.externalId} already exists`);
+  if (existing) throw new ConflictError(`Worker with externalId ${body.externalId} already exists`);
 
   // Call Wingspan: POST /payments/payee from Payee Bucket context
   const wingspan = getWingspanClient(environment).withChild(payeeBucketUserId);
@@ -128,9 +128,9 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     ...(Object.keys(payeeW9).length ? { payeeW9Data: payeeW9 } : {}),
   });
 
-  // Save contractor with Wingspan IDs
-  const [contractor] = await db
-    .insert(contractors)
+  // Save worker with Wingspan IDs
+  const [worker] = await db
+    .insert(workers)
     .values({
       tenantId,
       externalId: body.externalId,
@@ -147,12 +147,12 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     })
     .returning();
 
-  if (!contractor) throw new Error("Failed to create contractor");
+  if (!worker) throw new Error("Failed to create worker");
 
   // Get a session token for an immediate embedded-onboarding URL. The URL is
   // iframe-safe and the tenant can drop it directly into <iframe src=...>.
   // Falls back to null if Wingspan rejects the session call — caller can
-  // refetch via GET /v1/contractors/:id/onboarding-link.
+  // refetch via GET /v1/workers/:id/onboarding-link.
   let embeddedOnboardingUrl: string | null = null;
   let embeddedOnboardingExpiresAt: string | null = null;
   try {
@@ -168,16 +168,16 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
     tenantId,
     actorType: "api_key",
     actorId: c.var.auth.apiKeyId,
-    action: "contractor.created",
-    resourceType: "contractor",
-    resourceId: contractor.id,
-    metadata: { email: contractor.email, externalId: contractor.externalId },
+    action: "worker.created",
+    resourceType: "worker",
+    resourceId: worker.id,
+    metadata: { email: worker.email, externalId: worker.externalId },
     ipAddress: clientIp(c),
   });
 
   return c.json(
     {
-      ...toContractorDTO(contractor),
+      ...toWorkerDTO(worker),
       embeddedOnboardingUrl,
       embeddedOnboardingExpiresAt,
     },
@@ -185,61 +185,61 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
   );
 });
 
-contractorRoutes.get("/", async (c) => {
+workerRoutes.get("/", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const status = c.req.query("status");
   const page = parseInt(c.req.query("page") ?? "1", 10);
   const limit = Math.min(parseInt(c.req.query("limit") ?? "20", 10), 100);
   const offset = (page - 1) * limit;
 
-  type ContractorStatus = "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
-  const conditions = [eq(contractors.tenantId, tenantId), eq(contractors.environment, environment)];
+  type WorkerStatus = "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
+  const conditions = [eq(workers.tenantId, tenantId), eq(workers.environment, environment)];
   if (status) {
-    conditions.push(eq(contractors.onboardingStatus, status as ContractorStatus));
+    conditions.push(eq(workers.onboardingStatus, status as WorkerStatus));
   }
 
   const rows = await db
     .select()
-    .from(contractors)
+    .from(workers)
     .where(and(...conditions))
-    .orderBy(desc(contractors.createdAt))
+    .orderBy(desc(workers.createdAt))
     .limit(limit)
     .offset(offset);
 
   const [countResult] = await db
     .select({ value: count() })
-    .from(contractors)
+    .from(workers)
     .where(and(...conditions));
   const total = countResult?.value ?? 0;
 
   return c.json({
-    data: rows.map(toContractorDTO),
+    data: rows.map(toWorkerDTO),
     pagination: { page, limit, total, hasMore: offset + rows.length < total },
   });
 });
 
-contractorRoutes.get("/:id", async (c) => {
+workerRoutes.get("/:id", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
-  const [contractor] = await db
+  const [worker] = await db
     .select()
-    .from(contractors)
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, id),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, id),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
 
-  if (!contractor) throw new NotFoundError("Contractor");
+  if (!worker) throw new NotFoundError("Worker");
 
-  return c.json(toContractorDTO(withSsnLast4(contractor)));
+  return c.json(toWorkerDTO(withSsnLast4(worker)));
 });
 
-function withSsnLast4(c: typeof contractors.$inferSelect): Record<string, unknown> {
+function withSsnLast4(c: typeof workers.$inferSelect): Record<string, unknown> {
   if (!c.ssnEncrypted) return { ...c, ssnLast4: null };
   try {
     return { ...c, ssnLast4: ssnLast4(decryptSecret(c.ssnEncrypted)) };
@@ -248,13 +248,13 @@ function withSsnLast4(c: typeof contractors.$inferSelect): Record<string, unknow
   }
 }
 
-const updateContractorSchema = z.object({
+const updateWorkerSchema = z.object({
   firstName: z.string().max(100).nullish(),
   lastName: z.string().max(100).nullish(),
   metadata: z.record(z.unknown()).optional(),
   onboardingStatus: z.enum(["invited", "w9_pending", "payout_pending", "active", "inactive"]).optional(),
   // Fields seeded into the Wingspan W-9 onboarding form. Stored on
-  // contractors.w9SeededData and synced to Wingspan on the next onboarding-link
+  // workers.w9SeededData and synced to Wingspan on the next onboarding-link
   // request. Wingspan only accepts a subset (address + ssn) — the rest are
   // kept locally for our own records.
   w9Prefill: z
@@ -275,23 +275,23 @@ const updateContractorSchema = z.object({
   ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "ssn must be 9 digits").nullish(),
 });
 
-contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async (c) => {
+workerRoutes.patch("/:id", zValidator("json", updateWorkerSchema), async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
   const body = c.req.valid("json");
 
   const [existing] = await db
-    .select({ id: contractors.id })
-    .from(contractors)
+    .select({ id: workers.id })
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, id),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, id),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
-  if (!existing) throw new NotFoundError("Contractor");
+  if (!existing) throw new NotFoundError("Worker");
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
   if (body.firstName !== undefined) updates["firstName"] = body.firstName ?? null;
@@ -304,105 +304,105 @@ contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async
   }
 
   const [updated] = await db
-    .update(contractors)
+    .update(workers)
     .set(updates)
-    .where(eq(contractors.id, id))
+    .where(eq(workers.id, id))
     .returning();
-  if (!updated) throw new Error("Failed to update contractor");
+  if (!updated) throw new Error("Failed to update worker");
 
   await logAudit({
     tenantId,
     actorType: "api_key",
     actorId: c.var.auth.apiKeyId,
-    action: "contractor.updated",
-    resourceType: "contractor",
+    action: "worker.updated",
+    resourceType: "worker",
     resourceId: id,
     metadata: { fields: Object.keys(updates).filter((k) => k !== "updatedAt") },
     ipAddress: clientIp(c),
   });
 
-  return c.json(toContractorDTO(withSsnLast4(updated)));
+  return c.json(toWorkerDTO(withSsnLast4(updated)));
 });
 
-contractorRoutes.delete("/:id", async (c) => {
+workerRoutes.delete("/:id", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
-  const [contractor] = await db
-    .select({ id: contractors.id, email: contractors.email })
-    .from(contractors)
+  const [worker] = await db
+    .select({ id: workers.id, email: workers.email })
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, id),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, id),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
-  if (!contractor) throw new NotFoundError("Contractor");
+  if (!worker) throw new NotFoundError("Worker");
 
   const [[eng], [pay]] = await Promise.all([
-    db.select({ n: count() }).from(engagements).where(eq(engagements.contractorId, id)),
-    db.select({ n: count() }).from(payables).where(eq(payables.contractorId, id)),
+    db.select({ n: count() }).from(engagements).where(eq(engagements.workerId, id)),
+    db.select({ n: count() }).from(payables).where(eq(payables.workerId, id)),
   ]);
   const refs = Number(eng?.n ?? 0) + Number(pay?.n ?? 0);
   if (refs > 0) {
     return c.json(
       {
         error: "has_references",
-        message: "Cannot delete contractor with engagements or payables. Mark them inactive instead.",
+        message: "Cannot delete worker with engagements or payables. Mark them inactive instead.",
       },
       409,
     );
   }
 
-  await db.delete(contractors).where(eq(contractors.id, id));
+  await db.delete(workers).where(eq(workers.id, id));
 
   await logAudit({
     tenantId,
     actorType: "api_key",
     actorId: c.var.auth.apiKeyId,
-    action: "contractor.deleted",
-    resourceType: "contractor",
+    action: "worker.deleted",
+    resourceType: "worker",
     resourceId: id,
-    metadata: { email: contractor.email, environment },
+    metadata: { email: worker.email, environment },
     ipAddress: clientIp(c),
   });
 
   return c.json({ ok: true });
 });
 
-contractorRoutes.get("/:id/onboarding-link", async (c) => {
+workerRoutes.get("/:id/onboarding-link", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();
 
-  const [contractor] = await db
+  const [worker] = await db
     .select()
-    .from(contractors)
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, id),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, id),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
 
-  if (!contractor) throw new NotFoundError("Contractor");
+  if (!worker) throw new NotFoundError("Worker");
 
-  let userId = contractor.wingspanUserId;
+  let userId = worker.wingspanUserId;
   if (!userId) {
-    userId = await repairContractorWingspanUserId(contractor, environment);
+    userId = await repairWorkerWingspanUserId(worker, environment);
   }
 
   if (!userId) {
-    return c.json({ error: "not_ready", message: "Contractor does not have an onboarding account yet" }, 422);
+    return c.json({ error: "not_ready", message: "Worker does not have an onboarding account yet" }, 422);
   }
 
-  // Best-effort push latest contractor data so the Wingspan onboarding form
+  // Best-effort push latest worker data so the Wingspan onboarding form
   // shows pre-filled name + address. Doesn't block if the PATCH fails.
-  if (contractor.wingspanPayeeBucketPayeeId) {
-    await syncContractorToWingspan(contractor, environment, contractor.wingspanPayeeBucketPayeeId);
+  if (worker.wingspanPayeeBucketPayeeId) {
+    await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
   }
 
   const session = await getWingspanClient(environment).getSessionToken(userId);
@@ -419,26 +419,26 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
   });
 });
 
-// ─── Engagements (contractor ↔ entity) ────────────────────────────────────────
+// ─── Engagements (worker ↔ entity) ────────────────────────────────────────
 
-contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.string().uuid() })), async (c) => {
+workerRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId: z.string().uuid() })), async (c) => {
   const { tenantId, environment } = c.var.auth;
-  const { id: contractorId } = c.req.param();
+  const { id: workerId } = c.req.param();
   const { entityId } = c.req.valid("json");
 
-  // Validate contractor belongs to tenant (in this env)
-  const [contractor] = await db
+  // Validate worker belongs to tenant (in this env)
+  const [worker] = await db
     .select()
-    .from(contractors)
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, contractorId),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, workerId),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
-  if (!contractor) throw new NotFoundError("Contractor");
+  if (!worker) throw new NotFoundError("Worker");
 
   // Validate env-scoped entity
   const [entity] = await db
@@ -454,6 +454,52 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     .limit(1);
   if (!entity) throw new NotFoundError("Entity");
 
+  // Engagement type is derived from the entity's taxType. Wingspan V3 uses
+  // "Contractor" / "Employee" for the same distinction.
+  const engagementType: "contractor" | "employee" =
+    entity.taxType === "w2" ? "employee" : "contractor";
+
+  // A worker can't simultaneously hold engagements of both types (IRS rule —
+  // Wingspan enforces this; we mirror).
+  const conflicting = await db
+    .select({ id: engagements.id, type: engagements.type, status: engagements.status })
+    .from(engagements)
+    .where(
+      and(
+        eq(engagements.workerId, workerId),
+        eq(engagements.environment, environment),
+      ),
+    );
+  const conflictingActive = conflicting.find(
+    (e) => e.type !== engagementType && e.status === "active",
+  );
+  if (conflictingActive) {
+    return c.json(
+      {
+        error: "conflicting_classification",
+        message:
+          `Worker already has an active ${conflictingActive.type === "employee" ? "W-2" : "1099"} ` +
+          `engagement; end it before attaching to a ${engagementType === "employee" ? "W-2" : "1099"} entity.`,
+      },
+      409,
+    );
+  }
+
+  // W-2 (Employee) engagements run on Wingspan's V3 API which we haven't wired
+  // up yet. Surface a clear stub error so the caller knows the entity is
+  // recorded but no engagement was created.
+  if (engagementType === "employee") {
+    return c.json(
+      {
+        error: "w2_not_implemented",
+        message:
+          "W-2 payroll integration is in progress. The entity is recorded but no engagement can be " +
+          "created until the W-2 Wingspan V3 flow ships. See /dashboard/developer/docs for status.",
+      },
+      501,
+    );
+  }
+
   const childUserId = entityChildUserId(entity, environment);
   if (!childUserId) {
     return c.json(
@@ -468,7 +514,7 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     .from(engagements)
     .where(
       and(
-        eq(engagements.contractorId, contractorId),
+        eq(engagements.workerId, workerId),
         eq(engagements.entityId, entityId),
         eq(engagements.environment, environment),
       ),
@@ -485,10 +531,10 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
   let wingspanPayee;
   try {
     wingspanPayee = await wingspan.createPayee({
-      email: contractor.email,
-      ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
-      ...(contractor.lastName ? { lastName: contractor.lastName } : {}),
-      payeeExternalId: contractor.externalId,
+      email: worker.email,
+      ...(worker.firstName ? { firstName: worker.firstName } : {}),
+      ...(worker.lastName ? { lastName: worker.lastName } : {}),
+      payeeExternalId: worker.externalId,
       status: "Active",
     });
   } catch (err) {
@@ -504,15 +550,16 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     wingspanPayee.requirements?.[0]?.payerPayeeEngagementIds?.[0];
 
   if (!engagementId) {
-    throw new Error("Wingspan did not return a payerPayeeEngagementId — cannot create payables for this contractor+entity pair");
+    throw new Error("Wingspan did not return a payerPayeeEngagementId — cannot create payables for this worker+entity pair");
   }
 
   const [engagement] = await db
     .insert(engagements)
     .values({
       tenantId,
-      contractorId,
+      workerId,
       entityId,
+      type: engagementType,
       wingspanPayerPayeeEngagementId: engagementId,
       wingspanEntityPayeeId: wingspanPayee.payeeId,
       status: "active",
@@ -526,37 +573,37 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     tenantId,
     actorType: "api_key",
     actorId: c.var.auth.apiKeyId,
-    action: "contractor.engagement.created",
+    action: "worker.engagement.created",
     resourceType: "engagement",
     resourceId: engagement.id,
-    metadata: { contractorId, entityId, entityName: entity.name },
+    metadata: { workerId, entityId, entityName: entity.name },
     ipAddress: clientIp(c),
   });
 
   return c.json(toEngagementDTO(engagement, { entityName: entity.name }), 201);
 });
 
-contractorRoutes.get("/:id/engagements", async (c) => {
+workerRoutes.get("/:id/engagements", async (c) => {
   const { tenantId, environment } = c.var.auth;
-  const { id: contractorId } = c.req.param();
+  const { id: workerId } = c.req.param();
 
-  const [contractor] = await db
-    .select({ id: contractors.id })
-    .from(contractors)
+  const [worker] = await db
+    .select({ id: workers.id })
+    .from(workers)
     .where(
       and(
-        eq(contractors.id, contractorId),
-        eq(contractors.tenantId, tenantId),
-        eq(contractors.environment, environment),
+        eq(workers.id, workerId),
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
       ),
     )
     .limit(1);
-  if (!contractor) throw new NotFoundError("Contractor");
+  if (!worker) throw new NotFoundError("Worker");
 
   const rows = await db
     .select({
       id: engagements.id,
-      contractorId: engagements.contractorId,
+      workerId: engagements.workerId,
       entityId: engagements.entityId,
       entityName: tenantEntities.name,
       status: engagements.status,
@@ -564,7 +611,7 @@ contractorRoutes.get("/:id/engagements", async (c) => {
     })
     .from(engagements)
     .innerJoin(tenantEntities, eq(engagements.entityId, tenantEntities.id))
-    .where(and(eq(engagements.contractorId, contractorId), eq(engagements.environment, environment)));
+    .where(and(eq(engagements.workerId, workerId), eq(engagements.environment, environment)));
 
   return c.json(rows.map((r) => toEngagementDTO(r, { entityName: r.entityName })));
 });
@@ -598,12 +645,12 @@ function calculateFee(amountCents: number, feeBps: number, perTxFeeCents: number
   return Math.round(amountCents * (feeBps / 10000)) + perTxFeeCents;
 }
 
-contractorRoutes.post(
+workerRoutes.post(
   "/:id/pay-now",
   zValidator("json", payNowSchema),
   async (c) => {
     const { tenantId, apiKeyId, environment } = c.var.auth;
-    const { id: contractorId } = c.req.param();
+    const { id: workerId } = c.req.param();
     const body = c.req.valid("json");
     const idempotencyKey = c.req.header("Idempotency-Key");
 
@@ -613,7 +660,7 @@ contractorRoutes.post(
 
     // Idempotency replay check
     const requestHash = createHash("sha256")
-      .update(JSON.stringify({ contractorId, environment, ...body }))
+      .update(JSON.stringify({ workerId, environment, ...body }))
       .digest("hex");
     const [existingKey] = await db
       .select()
@@ -628,28 +675,28 @@ contractorRoutes.post(
       .values({
         tenantId,
         idempotencyKey,
-        requestPath: `/v1/contractors/${contractorId}/pay-now`,
+        requestPath: `/v1/workers/${workerId}/pay-now`,
         requestHash,
         lockedAt: new Date(),
       })
       .onConflictDoNothing();
 
-    // Validate contractor + entity ownership and engagement (in this env)
-    const [contractor] = await db
+    // Validate worker + entity ownership and engagement (in this env)
+    const [worker] = await db
       .select()
-      .from(contractors)
+      .from(workers)
       .where(
         and(
-          eq(contractors.id, contractorId),
-          eq(contractors.tenantId, tenantId),
-          eq(contractors.environment, environment),
+          eq(workers.id, workerId),
+          eq(workers.tenantId, tenantId),
+          eq(workers.environment, environment),
         ),
       )
       .limit(1);
-    if (!contractor) throw new NotFoundError("Contractor");
-    if (contractor.onboardingStatus !== "active") {
+    if (!worker) throw new NotFoundError("Worker");
+    if (worker.onboardingStatus !== "active") {
       throw new ValidationError(
-        `Contractor onboarding is not complete (status: ${contractor.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
+        `Worker onboarding is not complete (status: ${worker.onboardingStatus}). They must finish W-9 and payout setup before they can be paid.`,
       );
     }
 
@@ -677,7 +724,7 @@ contractorRoutes.post(
       .where(
         and(
           eq(engagements.tenantId, tenantId),
-          eq(engagements.contractorId, contractorId),
+          eq(engagements.workerId, workerId),
           eq(engagements.entityId, body.entityId),
           eq(engagements.environment, environment),
         ),
@@ -685,7 +732,19 @@ contractorRoutes.post(
       .limit(1);
     if (!engagement) {
       throw new ValidationError(
-        "No engagement found for this contractor and entity. Attach the contractor to the entity first.",
+        "No engagement found for this worker and entity. Attach the worker to the entity first.",
+      );
+    }
+
+    if (engagement.type === "employee") {
+      return c.json(
+        {
+          error: "w2_not_implemented",
+          message:
+            "W-2 payroll integration is in progress — pay-now is unavailable for employee engagements. " +
+            "Use the upcoming /v1/payrolls flow once W-2 ships.",
+        },
+        501,
       );
     }
 
@@ -695,7 +754,7 @@ contractorRoutes.post(
         id: payables.id,
         amountCents: payables.amountCents,
         feeAmountCents: payables.feeAmountCents,
-        contractorId: payables.contractorId,
+        workerId: payables.workerId,
         externalReferenceId: payables.externalReferenceId,
         engagementId: payables.engagementId,
         entityId: payables.entityId,
@@ -743,7 +802,7 @@ contractorRoutes.post(
       body.lineItems ??
       [
         {
-          description: body.description ?? `Payment to ${contractor.firstName ?? ""} ${contractor.lastName ?? ""}`.trim(),
+          description: body.description ?? `Payment to ${worker.firstName ?? ""} ${worker.lastName ?? ""}`.trim(),
           amountCents: body.amountCents,
         },
       ];
@@ -774,7 +833,7 @@ contractorRoutes.post(
       .values({
         tenantId,
         entityId: body.entityId,
-        contractorId,
+        workerId,
         engagementId: engagement.id,
         externalReferenceId: body.externalReferenceId ?? null,
         amountCents: body.amountCents,
@@ -838,7 +897,7 @@ contractorRoutes.post(
       resourceType: "payable",
       resourceId: payable.id,
       metadata: {
-        contractorId,
+        workerId,
         entityId: body.entityId,
         amountCents: body.amountCents,
         includedOtherPending: existingPending.length,

@@ -1,7 +1,7 @@
 import { apiServerGet } from "@/lib/api-server";
 import { NewPayableForm } from "./form-client";
 
-interface Contractor {
+interface Worker {
   id: string;
   externalId: string;
   email: string;
@@ -17,15 +17,15 @@ interface Entity {
 }
 
 export default async function NewPayablePage() {
-  let contractors: Contractor[] = [];
+  let workers: Worker[] = [];
   let entities: Entity[] = [];
 
   try {
-    const [contractorRes, entityRes] = await Promise.all([
-      apiServerGet<{ data: Contractor[] }>("/v1/contractors?limit=200"),
+    const [workerRes, entityRes] = await Promise.all([
+      apiServerGet<{ data: Worker[] }>("/v1/workers?limit=200"),
       apiServerGet<Entity[]>("/v1/entities"),
     ]);
-    contractors = contractorRes.data.filter((c) => c.onboardingStatus === "active");
+    workers = workerRes.data.filter((c) => c.onboardingStatus === "active");
     entities = entityRes.filter((e) => e.status === "active");
   } catch {
     // empty state — form handles gracefully
@@ -33,7 +33,7 @@ export default async function NewPayablePage() {
 
   return (
     <NewPayableForm
-      contractors={contractors.map((c) => ({
+      workers={workers.map((c) => ({
         id: c.id,
         label: `${[c.firstName, c.lastName].filter(Boolean).join(" ") || c.email} (${c.externalId})`,
       }))}
