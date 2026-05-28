@@ -225,6 +225,58 @@ contractorRoutes.get("/:id", async (c) => {
   return c.json(toContractorDTO(contractor));
 });
 
+const updateContractorSchema = z.object({
+  firstName: z.string().max(100).nullish(),
+  lastName: z.string().max(100).nullish(),
+  metadata: z.record(z.unknown()).optional(),
+  onboardingStatus: z.enum(["invited", "w9_pending", "payout_pending", "active", "inactive"]).optional(),
+});
+
+contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id } = c.req.param();
+  const body = c.req.valid("json");
+
+  const [existing] = await db
+    .select({ id: contractors.id })
+    .from(contractors)
+    .where(
+      and(
+        eq(contractors.id, id),
+        eq(contractors.tenantId, tenantId),
+        eq(contractors.environment, environment),
+      ),
+    )
+    .limit(1);
+  if (!existing) throw new NotFoundError("Contractor");
+
+  const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (body.firstName !== undefined) updates["firstName"] = body.firstName ?? null;
+  if (body.lastName !== undefined) updates["lastName"] = body.lastName ?? null;
+  if (body.metadata !== undefined) updates["metadata"] = body.metadata;
+  if (body.onboardingStatus !== undefined) updates["onboardingStatus"] = body.onboardingStatus;
+
+  const [updated] = await db
+    .update(contractors)
+    .set(updates)
+    .where(eq(contractors.id, id))
+    .returning();
+  if (!updated) throw new Error("Failed to update contractor");
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "contractor.updated",
+    resourceType: "contractor",
+    resourceId: id,
+    metadata: { fields: Object.keys(updates).filter((k) => k !== "updatedAt") },
+    ipAddress: clientIp(c),
+  });
+
+  return c.json(toContractorDTO(updated));
+});
+
 contractorRoutes.delete("/:id", async (c) => {
   const { tenantId, environment } = c.var.auth;
   const { id } = c.req.param();

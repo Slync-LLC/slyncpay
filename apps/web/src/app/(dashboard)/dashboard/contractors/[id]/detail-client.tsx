@@ -3,9 +3,9 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ExternalLink, Copy, Check, Mail, Link2, Send, Plus, Monitor, ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronLeft, ExternalLink, Copy, Check, Mail, Link2, Send, Plus, Monitor, ChevronDown, ChevronUp, Pencil, Archive, RotateCcw } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
-import { attachContractorToEntity, payContractorNow } from "../actions";
+import { attachContractorToEntity, payContractorNow, updateContractor } from "../actions";
 
 type Tab = "overview" | "payments" | "entities" | "1099s";
 
@@ -97,6 +97,19 @@ export function ContractorDetailClient(props: {
   const [attachOpen, setAttachOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
   const [iframeOpen, setIframeOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [archiveBusy, startArchive] = useTransition();
+  const router = useRouter();
+  const isArchived = c.onboardingStatus === "inactive";
+
+  function toggleArchive() {
+    startArchive(async () => {
+      const next: "active" | "inactive" = isArchived ? "active" : "inactive";
+      const res = await updateContractor(c.id, { onboardingStatus: next });
+      if (res.ok) router.refresh();
+      else alert(res.error);
+    });
+  }
 
   const fullName = [c.firstName, c.lastName].filter(Boolean).join(" ") || c.email;
 
@@ -129,7 +142,7 @@ export function ContractorDetailClient(props: {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {onboardingUrl && (
+          {onboardingUrl && !isArchived && (
             <button
               type="button"
               onClick={() => {
@@ -141,6 +154,32 @@ export function ContractorDetailClient(props: {
               Copy onboarding link
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => setEditOpen(true)}
+            className="flex items-center gap-1.5 text-sm border border-border rounded-md px-3 py-2 hover:bg-muted transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={toggleArchive}
+            disabled={archiveBusy}
+            className="flex items-center gap-1.5 text-sm border border-border rounded-md px-3 py-2 hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            {isArchived ? (
+              <>
+                <RotateCcw className="h-3.5 w-3.5" />
+                Restore
+              </>
+            ) : (
+              <>
+                <Archive className="h-3.5 w-3.5" />
+                Archive
+              </>
+            )}
+          </button>
           {engagements.length > 0 && c.onboardingStatus === "active" && (
             <button
               type="button"
@@ -383,6 +422,106 @@ export function ContractorDetailClient(props: {
           onClose={() => setPayOpen(false)}
         />
       )}
+
+      {editOpen && (
+        <EditContractorModal
+          contractor={c}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EditContractorModal({
+  contractor,
+  onClose,
+}: {
+  contractor: Contractor;
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [firstName, setFirstName] = useState(contractor.firstName ?? "");
+  const [lastName, setLastName] = useState(contractor.lastName ?? "");
+  const [err, setErr] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+
+  function submit() {
+    setErr(null);
+    start(async () => {
+      const res = await updateContractor(contractor.id, {
+        firstName: firstName.trim() || null,
+        lastName: lastName.trim() || null,
+      });
+      if (!res.ok) {
+        setErr(res.error);
+        return;
+      }
+      onClose();
+      router.refresh();
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+        <h3 className="text-lg font-semibold mb-1">Edit contractor</h3>
+        <p className="text-sm text-muted-foreground mb-4">
+          Email and external ID can&apos;t be changed — they&apos;re used to link the contractor across systems.
+        </p>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">First name</label>
+            <input
+              type="text"
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Last name</label>
+            <input
+              type="text"
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-border space-y-1 text-xs">
+          <div className="flex justify-between gap-4 text-muted-foreground">
+            <span>Email</span>
+            <span className="font-mono">{contractor.email}</span>
+          </div>
+          <div className="flex justify-between gap-4 text-muted-foreground">
+            <span>External ID</span>
+            <span className="font-mono">{contractor.externalId}</span>
+          </div>
+        </div>
+
+        {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
+
+        <div className="flex justify-end gap-2 mt-6">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={pending}
+            className="px-4 py-2 rounded-md text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

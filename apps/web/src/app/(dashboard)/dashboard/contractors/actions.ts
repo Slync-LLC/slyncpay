@@ -39,6 +39,25 @@ export async function createContractor(input: CreateContractorInput): Promise<
   return { ok: true, contractorId };
 }
 
+interface UpdateContractorInput {
+  firstName?: string | null;
+  lastName?: string | null;
+  onboardingStatus?: "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
+}
+
+export async function updateContractor(
+  contractorId: string,
+  input: UpdateContractorInput,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    await apiServerJson(`/v1/contractors/${contractorId}`, input, { method: "PATCH" });
+    return { ok: true };
+  } catch (err) {
+    if (err instanceof ServerApiError) return { ok: false, error: err.message };
+    return { ok: false, error: "Network error" };
+  }
+}
+
 export async function attachContractorToEntity(
   contractorId: string,
   entityId: string,
