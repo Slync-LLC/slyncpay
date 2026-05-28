@@ -43,6 +43,14 @@ interface UpdateContractorInput {
   firstName?: string | null;
   lastName?: string | null;
   onboardingStatus?: "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
+  w9Prefill?: {
+    country?: string;
+    addressLine1?: string;
+    addressLine2?: string;
+    city?: string;
+    state?: string;
+    postalCode?: string;
+  };
 }
 
 export async function updateContractor(

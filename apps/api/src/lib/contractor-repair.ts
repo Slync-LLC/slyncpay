@@ -2,6 +2,60 @@ import { eq } from "@slyncpay/db";
 import { db, contractors, tenants } from "@slyncpay/db";
 import { getWingspanClient, type WingspanEnvironment } from "./wingspan.js";
 
+interface W9Seed {
+  country?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+}
+
+/**
+ * Push the latest contractor data into Wingspan so the embedded onboarding
+ * form shows pre-filled values. Best-effort: errors are logged and swallowed
+ * — we never want this to block returning the onboarding link.
+ */
+export async function syncContractorToWingspan(
+  contractor: typeof contractors.$inferSelect,
+  environment: WingspanEnvironment,
+  payeeId: string,
+): Promise<void> {
+  const [tenant] = await db
+    .select({
+      wingspanPayeeBucketUserId: tenants.wingspanPayeeBucketUserId,
+      wingspanPayeeBucketUserIdSandbox: tenants.wingspanPayeeBucketUserIdSandbox,
+    })
+    .from(tenants)
+    .where(eq(tenants.id, contractor.tenantId))
+    .limit(1);
+  const payeeBucketUserId =
+    environment === "test"
+      ? tenant?.wingspanPayeeBucketUserIdSandbox
+      : tenant?.wingspanPayeeBucketUserId;
+  if (!payeeBucketUserId) return;
+
+  const w9 = (contractor.w9SeededData ?? {}) as W9Seed;
+  const w9Filled: W9Seed = {};
+  if (w9.country) w9Filled.country = w9.country;
+  if (w9.addressLine1) w9Filled.addressLine1 = w9.addressLine1;
+  if (w9.addressLine2) w9Filled.addressLine2 = w9.addressLine2;
+  if (w9.city) w9Filled.city = w9.city;
+  if (w9.state) w9Filled.state = w9.state;
+  if (w9.postalCode) w9Filled.postalCode = w9.postalCode;
+
+  try {
+    await getWingspanClient(environment).withChild(payeeBucketUserId).updatePayee(payeeId, {
+      ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
+      ...(contractor.lastName ? { lastName: contractor.lastName } : {}),
+      payeeExternalId: contractor.externalId,
+      ...(Object.keys(w9Filled).length ? { payeeW9Data: w9Filled } : {}),
+    });
+  } catch (err) {
+    console.error(`[contractor-sync] updatePayee failed for ${contractor.id}:`, (err as Error).message);
+  }
+}
+
 /**
  * Backfills a contractor's wingspanUserId for legacy rows missing it.
  *

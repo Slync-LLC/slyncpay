@@ -237,6 +237,38 @@ export class WingspanClient {
     return this.request("PATCH", `/payments/payable/${payableId}`, { status: "Open" });
   }
 
+  /**
+   * Update a payee — used to push the tenant's latest contractor data into
+   * Wingspan so the onboarding form is pre-filled. Wingspan accepts firstName/
+   * lastName at the top level and address fields under payerOwnedData.payeeW9Data.
+   */
+  updatePayee(
+    payeeId: string,
+    body: {
+      firstName?: string;
+      lastName?: string;
+      payeeExternalId?: string;
+      payeeW9Data?: {
+        country?: string;
+        addressLine1?: string;
+        addressLine2?: string;
+        city?: string;
+        state?: string;
+        postalCode?: string;
+      };
+    },
+  ): Promise<WingspanCreatePayeeResponse> {
+    const { firstName, lastName, payeeExternalId, payeeW9Data } = body;
+    const payload: Record<string, unknown> = {};
+    if (firstName) payload["firstName"] = firstName;
+    if (lastName) payload["lastName"] = lastName;
+    const payerOwned: Record<string, unknown> = {};
+    if (payeeExternalId) payerOwned["payeeExternalId"] = payeeExternalId;
+    if (payeeW9Data) payerOwned["payeeW9Data"] = payeeW9Data;
+    if (Object.keys(payerOwned).length) payload["payerOwnedData"] = payerOwned;
+    return this.request("PATCH", `/payments/payee/${payeeId}`, payload);
+  }
+
   // ─── Disbursements ───────────────────────────────────────────────────────────
 
   /**

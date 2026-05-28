@@ -7,7 +7,7 @@ import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
-import { repairContractorWingspanUserId } from "../lib/contractor-repair.js";
+import { repairContractorWingspanUserId, syncContractorToWingspan } from "../lib/contractor-repair.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -231,6 +231,19 @@ const updateContractorSchema = z.object({
   lastName: z.string().max(100).nullish(),
   metadata: z.record(z.unknown()).optional(),
   onboardingStatus: z.enum(["invited", "w9_pending", "payout_pending", "active", "inactive"]).optional(),
+  // Address fields seeded into the Wingspan W-9 onboarding form. Stored on
+  // contractors.w9SeededData and synced to Wingspan on the next onboarding-link
+  // request.
+  w9Prefill: z
+    .object({
+      country: z.string().length(2).toUpperCase().optional(),
+      addressLine1: z.string().max(200).optional(),
+      addressLine2: z.string().max(200).optional(),
+      city: z.string().max(100).optional(),
+      state: z.string().max(50).optional(),
+      postalCode: z.string().max(20).optional(),
+    })
+    .optional(),
 });
 
 contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async (c) => {
@@ -256,6 +269,7 @@ contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async
   if (body.lastName !== undefined) updates["lastName"] = body.lastName ?? null;
   if (body.metadata !== undefined) updates["metadata"] = body.metadata;
   if (body.onboardingStatus !== undefined) updates["onboardingStatus"] = body.onboardingStatus;
+  if (body.w9Prefill !== undefined) updates["w9SeededData"] = body.w9Prefill;
 
   const [updated] = await db
     .update(contractors)
@@ -353,6 +367,12 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
     return c.json({ error: "not_ready", message: "Contractor does not have an onboarding account yet" }, 422);
   }
 
+  // Best-effort push latest contractor data so the Wingspan onboarding form
+  // shows pre-filled name + address. Doesn't block if the PATCH fails.
+  if (contractor.wingspanPayeeBucketPayeeId) {
+    await syncContractorToWingspan(contractor, environment, contractor.wingspanPayeeBucketPayeeId);
+  }
+
   const session = await getWingspanClient(environment).getSessionToken(userId);
   const baseUi = wingspanUiBaseUrl(environment);
 
@@ -434,6 +454,8 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
   try {
     wingspanPayee = await wingspan.createPayee({
       email: contractor.email,
+      ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
+      ...(contractor.lastName ? { lastName: contractor.lastName } : {}),
       payeeExternalId: contractor.externalId,
       status: "Active",
     });

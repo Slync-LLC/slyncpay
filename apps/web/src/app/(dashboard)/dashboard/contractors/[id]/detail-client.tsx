@@ -9,6 +9,15 @@ import { attachContractorToEntity, payContractorNow, updateContractor } from "..
 
 type Tab = "overview" | "payments" | "entities" | "1099s";
 
+interface W9Prefill {
+  country?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+}
+
 interface Contractor {
   id: string;
   externalId: string;
@@ -17,6 +26,7 @@ interface Contractor {
   lastName: string | null;
   onboardingStatus: string;
   createdAt: string;
+  w9SeededData?: W9Prefill | null;
 }
 
 interface Engagement {
@@ -525,17 +535,33 @@ function EditContractorModal({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const seed = contractor.w9SeededData ?? {};
   const [firstName, setFirstName] = useState(contractor.firstName ?? "");
   const [lastName, setLastName] = useState(contractor.lastName ?? "");
+  const [addressLine1, setAddressLine1] = useState(seed.addressLine1 ?? "");
+  const [addressLine2, setAddressLine2] = useState(seed.addressLine2 ?? "");
+  const [city, setCity] = useState(seed.city ?? "");
+  const [stateVal, setStateVal] = useState(seed.state ?? "");
+  const [postalCode, setPostalCode] = useState(seed.postalCode ?? "");
+  const [country, setCountry] = useState(seed.country ?? "US");
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
   function submit() {
     setErr(null);
     start(async () => {
+      const w9Prefill: Record<string, string> = {};
+      if (country.trim()) w9Prefill["country"] = country.trim().toUpperCase();
+      if (addressLine1.trim()) w9Prefill["addressLine1"] = addressLine1.trim();
+      if (addressLine2.trim()) w9Prefill["addressLine2"] = addressLine2.trim();
+      if (city.trim()) w9Prefill["city"] = city.trim();
+      if (stateVal.trim()) w9Prefill["state"] = stateVal.trim();
+      if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.trim();
+
       const res = await updateContractor(contractor.id, {
         firstName: firstName.trim() || null,
         lastName: lastName.trim() || null,
+        ...(Object.keys(w9Prefill).length ? { w9Prefill } : {}),
       });
       if (!res.ok) {
         setErr(res.error);
@@ -548,10 +574,11 @@ function EditContractorModal({
 
   return (
     <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-xl shadow-lg max-w-md w-full p-6">
+      <div className="bg-white rounded-xl shadow-lg max-w-xl w-full p-6 max-h-[90vh] overflow-y-auto">
         <h3 className="text-lg font-semibold mb-1">Edit contractor</h3>
         <p className="text-sm text-muted-foreground mb-4">
-          Email and external ID can&apos;t be changed — they&apos;re used to link the contractor across systems.
+          These values are pre-filled into the contractor&apos;s Wingspan onboarding form on
+          their next session link. Email and external ID can&apos;t be changed.
         </p>
 
         <div className="grid grid-cols-2 gap-3">
@@ -572,6 +599,71 @@ function EditContractorModal({
               onChange={(e) => setLastName(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Address (W-9 pre-fill)</div>
+          <div className="grid grid-cols-1 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">Address line 1</label>
+              <input
+                type="text"
+                value={addressLine1}
+                onChange={(e) => setAddressLine1(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium mb-1">Address line 2 (optional)</label>
+              <input
+                type="text"
+                value={addressLine2}
+                onChange={(e) => setAddressLine2(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">City</label>
+                <input
+                  type="text"
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">State</label>
+                <input
+                  type="text"
+                  value={stateVal}
+                  onChange={(e) => setStateVal(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium mb-1">Postal code</label>
+                <input
+                  type="text"
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Country</label>
+                <input
+                  type="text"
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value)}
+                  maxLength={2}
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

@@ -31,7 +31,7 @@ import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
 import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
-import { repairContractorWingspanUserId } from "../lib/contractor-repair.js";
+import { repairContractorWingspanUserId, syncContractorToWingspan } from "../lib/contractor-repair.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -615,6 +615,10 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
 
   if (!userId) {
     throw new ApiError(422, "not_ready", "Contractor does not have an onboarding account yet");
+  }
+
+  if (contractor.wingspanPayeeBucketPayeeId) {
+    await syncContractorToWingspan(contractor, env, contractor.wingspanPayeeBucketPayeeId);
   }
 
   const session = await getWingspanClient(env).getSessionToken(userId);

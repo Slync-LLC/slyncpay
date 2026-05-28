@@ -2,6 +2,15 @@ import { apiServerGet, ServerApiError } from "@/lib/api-server";
 import { notFound } from "next/navigation";
 import { ContractorDetailClient } from "./detail-client";
 
+type W9Prefill = {
+  country?: string | null;
+  addressLine1?: string | null;
+  addressLine2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postalCode?: string | null;
+};
+
 type Contractor = {
   id: string;
   externalId: string;
@@ -10,6 +19,7 @@ type Contractor = {
   lastName: string | null;
   onboardingStatus: string;
   createdAt: string;
+  w9SeededData?: W9Prefill | null;
 };
 
 type Engagement = {
