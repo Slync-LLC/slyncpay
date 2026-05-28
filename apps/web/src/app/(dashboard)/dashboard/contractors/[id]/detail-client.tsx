@@ -141,14 +141,14 @@ function OnboardingLinkCard({
           </p>
         </div>
       </div>
-      <div className="flex items-stretch gap-2">
-        <div className="flex-1 min-w-0 bg-muted rounded-md px-3 py-2 font-mono text-xs text-foreground overflow-x-auto whitespace-nowrap">
-          {url}
-        </div>
+      <div className="bg-muted rounded-md px-3 py-2 font-mono text-xs text-foreground break-all max-h-32 overflow-y-auto">
+        {url}
+      </div>
+      <div className="flex flex-wrap gap-2 mt-3">
         <button
           type="button"
           onClick={copyUrl}
-          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
         >
           {copied ? (
             <>
@@ -164,7 +164,7 @@ function OnboardingLinkCard({
         </button>
         <a
           href={mailto}
-          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
         >
           <Mail className="h-3.5 w-3.5" />
           Email
@@ -173,7 +173,7 @@ function OnboardingLinkCard({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors"
         >
           <ExternalLink className="h-3.5 w-3.5" />
           Open
