@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
 import { DisbursementDetailClient } from "./detail-client";
@@ -49,7 +49,7 @@ async function safeGet<T>(path: string): Promise<T | null> {
 
 export default async function DisbursementDetailPage({ params }: { params: { id: string } }) {
   const detail = await safeGet<DisbursementDetail>(`/v1/disbursements/${params.id}`);
-  if (!detail) notFound();
+  if (!detail) redirect("/dashboard/disbursements");
 
   const entities = (await safeGet<Entity[]>("/v1/entities")) ?? [];
   const entityName = entities.find((e) => e.id === detail.entityId)?.name ?? "Entity";

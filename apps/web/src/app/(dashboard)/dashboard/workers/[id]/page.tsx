@@ -1,5 +1,5 @@
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { WorkerDetailClient } from "./detail-client";
 
 type W9Prefill = {
@@ -66,7 +66,7 @@ async function safeGet<T>(path: string): Promise<T | null> {
 
 export default async function WorkerDetailPage({ params }: { params: { id: string } }) {
   const worker = await safeGet<Worker>(`/v1/workers/${params.id}`);
-  if (!worker) notFound();
+  if (!worker) redirect("/dashboard/workers");
 
   const [engagementsRaw, entitiesRaw, payablesRaw, onboardingLink] = await Promise.all([
     safeGet<Engagement[]>(`/v1/workers/${params.id}/engagements`),

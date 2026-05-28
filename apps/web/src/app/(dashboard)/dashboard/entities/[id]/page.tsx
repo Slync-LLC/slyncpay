@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import { ChevronLeft, Building2, Banknote, Clock, CheckCircle2, ExternalLink } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
@@ -109,7 +109,9 @@ async function safeGet<T>(path: string): Promise<T | null> {
 
 export default async function EntityDetailPage({ params }: { params: { id: string } }) {
   const entity = await safeGet<Entity>(`/v1/entities/${params.id}`);
-  if (!entity) notFound();
+  // Not found in the current env (e.g. user switched modes while viewing this
+  // entity). Send them to the list rather than a 404.
+  if (!entity) redirect("/dashboard/entities");
 
   const [payablesRes, disbursementsRes, provisioning, worksitesRes, templatesRes, payrollsRes] = await Promise.all([
     safeGet<{ data: Payable[] }>(`/v1/payables?entityId=${params.id}&limit=10`),

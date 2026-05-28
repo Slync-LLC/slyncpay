@@ -1,16 +1,18 @@
 "use client";
 
 import { useTransition } from "react";
+import { usePathname } from "next/navigation";
 import { Beaker, Zap } from "lucide-react";
 import { setMode } from "./actions";
 
 export function ModeToggle({ mode }: { mode: "live" | "test" }) {
   const [pending, start] = useTransition();
+  const pathname = usePathname();
 
   function switchTo(next: "live" | "test") {
     if (next === mode || pending) return;
     start(async () => {
-      await setMode(next);
+      await setMode(next, pathname);
     });
   }
 
