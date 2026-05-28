@@ -49,3 +49,25 @@ export function wingspanUiBaseUrl(environment: WingspanEnvironment): string {
 }
 
 export { hasSandboxConfig };
+
+/**
+ * Returns the correct Wingspan child user ID for an entity in the requested
+ * environment, handling legacy entities created before the env-scope refactor.
+ *
+ * Newer entities (post-refactor) live in one env and store their ID in
+ * `wingspanChildUserId`. Legacy entities (created by the old dual-provisioning
+ * worker) keep the LIVE id in `wingspanChildUserId` and the SANDBOX id in
+ * `wingspanChildUserIdSandbox`.
+ */
+export function entityChildUserId(
+  entity: {
+    wingspanChildUserId: string | null;
+    wingspanChildUserIdSandbox: string | null;
+  },
+  environment: WingspanEnvironment,
+): string | null {
+  if (environment === "test" && entity.wingspanChildUserIdSandbox) {
+    return entity.wingspanChildUserIdSandbox;
+  }
+  return entity.wingspanChildUserId;
+}

@@ -6,7 +6,7 @@ import { createHash } from "crypto";
 import { db, payables, engagements, tenantEntities, tenants, contractors, idempotencyKeys } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
-import { getWingspanClient } from "../lib/wingspan.js";
+import { getWingspanClient, entityChildUserId } from "../lib/wingspan.js";
 import { toPayableDTO } from "../lib/dto.js";
 import { logAudit } from "../lib/audit.js";
 import { clientIp } from "../lib/rate-limit.js";
@@ -99,7 +99,10 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
 
   // Resolve env-scoped entity child user (each entity belongs to one env now)
   const [entity] = await db
-    .select({ wingspanChildUserId: tenantEntities.wingspanChildUserId })
+    .select({
+      wingspanChildUserId: tenantEntities.wingspanChildUserId,
+      wingspanChildUserIdSandbox: tenantEntities.wingspanChildUserIdSandbox,
+    })
     .from(tenantEntities)
     .where(
       and(
@@ -110,15 +113,18 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     )
     .limit(1);
 
-  if (!entity?.wingspanChildUserId) {
+  if (!entity) {
+    throw new ValidationError("Entity not found");
+  }
+  const childUserId = entityChildUserId(entity, environment);
+  if (!childUserId) {
     throw new ValidationError("Entity is not yet provisioned");
   }
-  const entityChildUserId = entity.wingspanChildUserId;
 
   const feeAmountCents = calculateFee(body.amountCents, tenant.disbursementFeeBps, tenant.perTxFeeCents);
 
   // Create payable in Wingspan (entity context, env-specific)
-  const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
+  const wingspan = getWingspanClient(environment).withChild(childUserId);
 
   const wingspanPayable = await wingspan.createPayable({
     collaboratorId: engagement.wingspanPayerPayeeEngagementId,

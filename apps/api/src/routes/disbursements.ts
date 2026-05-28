@@ -6,7 +6,7 @@ import { createHash } from "crypto";
 import { db, disbursements, payables, tenantEntities, idempotencyKeys } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ValidationError } from "../lib/errors.js";
-import { getWingspanClient } from "../lib/wingspan.js";
+import { getWingspanClient, entityChildUserId } from "../lib/wingspan.js";
 import { toDisbursementDTO, toPayableDTO } from "../lib/dto.js";
 import { logAudit } from "../lib/audit.js";
 import { clientIp } from "../lib/rate-limit.js";
@@ -68,10 +68,10 @@ disbursementRoutes.post(
       .limit(1);
 
     if (!entity) throw new NotFoundError("Entity");
-    if (!entity.wingspanChildUserId) {
+    const childUserId = entityChildUserId(entity, environment);
+    if (!childUserId) {
       throw new ValidationError("Entity is not yet provisioned");
     }
-    const entityChildUserId = entity.wingspanChildUserId;
 
     // Count + sum pending payables for this entity (env-scoped)
     const pendingPayables = await db
@@ -124,7 +124,7 @@ disbursementRoutes.post(
       );
 
     // Call Wingspan: POST /payments/pay-approved (env-specific entity context)
-    const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
+    const wingspan = getWingspanClient(environment).withChild(childUserId);
     const batchResult = await wingspan.payApproved();
 
     // Update disbursement with Wingspan batch ID

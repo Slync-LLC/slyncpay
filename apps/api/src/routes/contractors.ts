@@ -6,7 +6,7 @@ import { db, contractors, engagements, tenantEntities, tenants, payables, disbur
 import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
-import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig } from "../lib/wingspan.js";
+import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -395,13 +395,13 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
     .limit(1);
   if (!entity) throw new NotFoundError("Entity");
 
-  if (!entity.wingspanChildUserId) {
+  const childUserId = entityChildUserId(entity, environment);
+  if (!childUserId) {
     return c.json(
       { error: "entity_not_provisioned", message: "Entity is not yet provisioned" },
       422,
     );
   }
-  const entityChildUserId = entity.wingspanChildUserId;
 
   // Check for existing engagement (idempotent) — scoped by env
   const [existingEngagement] = await db
@@ -421,7 +421,7 @@ contractorRoutes.post("/:id/engagements", zValidator("json", z.object({ entityId
   }
 
   // Call Wingspan: POST /payments/payee from entity context (env-specific)
-  const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
+  const wingspan = getWingspanClient(environment).withChild(childUserId);
 
   let wingspanPayee;
   try {
@@ -600,10 +600,10 @@ contractorRoutes.post(
       .limit(1);
     if (!entity) throw new NotFoundError("Entity");
 
-    if (!entity.wingspanChildUserId) {
+    const childUserId = entityChildUserId(entity, environment);
+    if (!childUserId) {
       throw new ValidationError("Entity is not yet provisioned");
     }
-    const entityChildUserId = entity.wingspanChildUserId;
 
     const [engagement] = await db
       .select()
@@ -683,7 +683,7 @@ contractorRoutes.post(
       ];
 
     // 1. Create payable in the payment processor (env-specific child)
-    const wingspan = getWingspanClient(environment).withChild(entityChildUserId);
+    const wingspan = getWingspanClient(environment).withChild(childUserId);
     const processorPayable = await wingspan.createPayable({
       collaboratorId: engagement.wingspanPayerPayeeEngagementId,
       dueDate,
