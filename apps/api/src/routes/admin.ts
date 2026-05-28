@@ -602,6 +602,7 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
       id: contractors.id,
       environment: contractors.environment,
       wingspanUserId: contractors.wingspanUserId,
+      wingspanPayeeBucketPayeeId: contractors.wingspanPayeeBucketPayeeId,
       onboardingStatus: contractors.onboardingStatus,
     })
     .from(contractors)
@@ -609,12 +610,28 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
     .limit(1);
 
   if (!contractor) throw new ApiError(404, "not_found", "Contractor not found");
-  if (!contractor.wingspanUserId) {
+
+  const env: "live" | "test" = contractor.environment === "test" ? "test" : "live";
+
+  // Backfill wingspanUserId from Wingspan if missing but the payee exists.
+  let userId = contractor.wingspanUserId;
+  if (!userId && contractor.wingspanPayeeBucketPayeeId) {
+    try {
+      const remote = await getWingspanClient(env).getPayee(contractor.wingspanPayeeBucketPayeeId);
+      if (remote.user?.userId) {
+        userId = remote.user.userId;
+        await db.update(contractors).set({ wingspanUserId: userId }).where(eq(contractors.id, id));
+      }
+    } catch (err) {
+      console.error(`[admin onboarding-link] Failed to backfill user id for ${id}:`, (err as Error).message);
+    }
+  }
+
+  if (!userId) {
     throw new ApiError(422, "not_ready", "Contractor does not have an onboarding account yet");
   }
 
-  const env: "live" | "test" = contractor.environment === "test" ? "test" : "live";
-  const session = await getWingspanClient(env).getSessionToken(contractor.wingspanUserId);
+  const session = await getWingspanClient(env).getSessionToken(userId);
   const baseUi = wingspanUiBaseUrl(env);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();

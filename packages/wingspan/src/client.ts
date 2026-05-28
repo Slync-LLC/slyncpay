@@ -220,6 +220,15 @@ export class WingspanClient {
   }
 
   /**
+   * Fetch a payee by its Wingspan payeeId. Returns the full payee record,
+   * including the underlying `user` object that holds `userId` (the value
+   * needed for session-token generation).
+   */
+  getPayee(payeeId: string): Promise<WingspanCreatePayeeResponse> {
+    return this.request("GET", `/payments/payee/${payeeId}`);
+  }
+
+  /**
    * Transition a payable from Pending → Open. pay-approved only sweeps Open
    * payables, so this must be called after createPayable before the disbursement
    * batch sweep is triggered.

@@ -330,7 +330,10 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
   const { id } = c.req.param();
 
   const [contractor] = await db
-    .select({ wingspanUserId: contractors.wingspanUserId })
+    .select({
+      wingspanUserId: contractors.wingspanUserId,
+      wingspanPayeeBucketPayeeId: contractors.wingspanPayeeBucketPayeeId,
+    })
     .from(contractors)
     .where(
       and(
@@ -342,11 +345,27 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
     .limit(1);
 
   if (!contractor) throw new NotFoundError("Contractor");
-  if (!contractor.wingspanUserId) {
+
+  // Backfill wingspanUserId from Wingspan if missing but the payee exists.
+  // This handles contractors created before we captured user.userId.
+  let userId = contractor.wingspanUserId;
+  if (!userId && contractor.wingspanPayeeBucketPayeeId) {
+    try {
+      const remote = await getWingspanClient(environment).getPayee(contractor.wingspanPayeeBucketPayeeId);
+      if (remote.user?.userId) {
+        userId = remote.user.userId;
+        await db.update(contractors).set({ wingspanUserId: userId }).where(eq(contractors.id, id));
+      }
+    } catch (err) {
+      console.error(`[onboarding-link] Failed to backfill user id for ${id}:`, (err as Error).message);
+    }
+  }
+
+  if (!userId) {
     return c.json({ error: "not_ready", message: "Contractor does not have an onboarding account yet" }, 422);
   }
 
-  const session = await getWingspanClient(environment).getSessionToken(contractor.wingspanUserId);
+  const session = await getWingspanClient(environment).getSessionToken(userId);
   const baseUi = wingspanUiBaseUrl(environment);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
