@@ -207,3 +207,43 @@ export async function deleteTenant(tenantId: string): Promise<{ error?: string }
 
   redirect("/admin/tenants");
 }
+
+export async function createStateJurisdiction(
+  tenantId: string,
+  input: { entityId: string; state: string; environment: "live" | "test"; notes?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const adminToken = cookies().get(ADMIN_COOKIE)?.value;
+  if (!adminToken) return { ok: false, error: "Not signed in" };
+
+  const res = await fetch(`${API_URL}/v1/admin/tenants/${tenantId}/state-jurisdictions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: body.message ?? "Failed to create state jurisdiction config" };
+  }
+  return { ok: true };
+}
+
+export async function updateStateJurisdiction(
+  id: string,
+  input: { status: "pending" | "in_progress" | "complete"; notes?: string },
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const adminToken = cookies().get(ADMIN_COOKIE)?.value;
+  if (!adminToken) return { ok: false, error: "Not signed in" };
+
+  const res = await fetch(`${API_URL}/v1/admin/state-jurisdictions/${id}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${adminToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    return { ok: false, error: body.message ?? "Failed to update state jurisdiction config" };
+  }
+  return { ok: true };
+}

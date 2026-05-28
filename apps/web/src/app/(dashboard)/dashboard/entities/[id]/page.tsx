@@ -18,8 +18,21 @@ interface Entity {
   einLast4: string | null;
   state: string | null;
   status: string;
+  taxType?: "1099" | "w2";
   createdAt: string;
   wingspan?: WingspanInfo;
+}
+
+interface Worksite {
+  id: string;
+  entityId: string;
+  name: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
 }
 
 interface Payable {
@@ -74,16 +87,20 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
   const entity = await safeGet<Entity>(`/v1/entities/${params.id}`);
   if (!entity) notFound();
 
-  const [payablesRes, disbursementsRes, provisioning] = await Promise.all([
+  const [payablesRes, disbursementsRes, provisioning, worksitesRes] = await Promise.all([
     safeGet<{ data: Payable[] }>(`/v1/payables?entityId=${params.id}&limit=10`),
     safeGet<{ data: Disbursement[] }>(`/v1/disbursements?entityId=${params.id}&limit=10`),
     entity.status === "pending"
       ? safeGet<ProvisioningStatus>(`/v1/entities/${params.id}/provisioning-status`)
       : null,
+    entity.taxType === "w2"
+      ? safeGet<{ data: Worksite[] }>(`/v1/worksites?entityId=${params.id}`)
+      : null,
   ]);
 
   const payables = payablesRes?.data ?? [];
   const disbursements = disbursementsRes?.data ?? [];
+  const worksitesList = worksitesRes?.data ?? [];
 
   const pendingTotalCents = payables
     .filter((p) => p.status === "pending")
@@ -145,6 +162,14 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
       <div className="grid gap-4">
         {entity.wingspan && entity.status === "active" && (
           <WingspanInfoCard entity={entity.name} wingspan={entity.wingspan} />
+        )}
+
+        {entity.taxType === "w2" && (
+          <WorksitesCard
+            entityId={entity.id}
+            entityState={entity.state}
+            worksites={worksitesList}
+          />
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -283,6 +308,65 @@ function Field({ label, value }: { label: string; value: string }) {
     <div>
       <div className="text-xs text-muted-foreground mb-1">{label}</div>
       <div className="font-mono text-xs break-all">{value}</div>
+    </div>
+  );
+}
+
+function WorksitesCard({
+  entityId,
+  entityState,
+  worksites,
+}: {
+  entityId: string;
+  entityState: string | null;
+  worksites: Worksite[];
+}) {
+  return (
+    <div className="bg-white rounded-xl border border-border p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold">Worksites</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            One per physical work location. W-2 engagements reference a worksite,
+            and state taxes are driven by the worksite address. State jurisdiction
+            config must be marked complete by an admin before worksites can be
+            created in that state.
+          </p>
+        </div>
+        <Link
+          href={`/dashboard/entities/${entityId}/worksites/new${
+            entityState ? `?state=${entityState}` : ""
+          }`}
+          className="inline-flex items-center gap-1.5 bg-primary text-primary-foreground px-3 py-1.5 rounded-md text-xs font-medium hover:opacity-90 transition-opacity shrink-0"
+        >
+          Add worksite
+        </Link>
+      </div>
+      {worksites.length === 0 ? (
+        <div className="text-sm text-muted-foreground py-2">No worksites yet.</div>
+      ) : (
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-border bg-muted/20 text-xs text-muted-foreground">
+              <th className="text-left px-3 py-2 font-medium">Name</th>
+              <th className="text-left px-3 py-2 font-medium">Address</th>
+              <th className="text-left px-3 py-2 font-medium">State</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border text-sm">
+            {worksites.map((w) => (
+              <tr key={w.id}>
+                <td className="px-3 py-2 font-medium">{w.name}</td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  {w.addressLine1}
+                  {w.addressLine2 ? `, ${w.addressLine2}` : ""}, {w.city}, {w.state} {w.postalCode}
+                </td>
+                <td className="px-3 py-2">{w.state}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

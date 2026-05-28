@@ -8,6 +8,7 @@ import {
   timestamp,
   date,
   jsonb,
+  numeric,
   index,
   uniqueIndex,
   pgEnum,
@@ -258,6 +259,13 @@ export const engagements = pgTable(
 
     // Entity-scoped payeeId (different from Payee Bucket payeeId)
     wingspanEntityPayeeId: text("wingspan_entity_payee_id"),
+
+    // W-2-only fields (set by the V3 engagement create flow). Null for 1099s.
+    engagementTemplateId: uuid("engagement_template_id"),
+    worksiteId: uuid("worksite_id"),
+    compensation: jsonb("compensation"),
+    paySchedule: text("pay_schedule"),
+    jobTitle: text("job_title"),
 
     environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
 
@@ -529,5 +537,233 @@ export const auditLog = pgTable(
   (t) => ({
     tenantCreatedIdx: index("idx_audit_log_tenant_id").on(t.tenantId, t.createdAt),
     resourceIdx: index("idx_audit_log_resource").on(t.resourceType, t.resourceId),
+  }),
+);
+
+// ─── Phase 2: W-2 payroll resources ───────────────────────────────────────────
+
+export const jurisdictionConfigStatusEnum = pgEnum("jurisdiction_config_status", [
+  "pending",
+  "in_progress",
+  "complete",
+]);
+
+export const i9ModeEnum = pgEnum("i9_mode", ["self_managed", "wingspan_managed", "hybrid"]);
+
+export const workLogStatusEnum = pgEnum("work_log_status", [
+  "draft",
+  "approved",
+  "processed",
+  "cancelled",
+]);
+
+export const payrollTypeEnum = pgEnum("payroll_type", ["regular", "off_cycle"]);
+
+export const payrollStatusEnum = pgEnum("payroll_status", [
+  "draft",
+  "previewed",
+  "approved",
+  "processing",
+  "paid",
+  "failed",
+]);
+
+export const payStatementStatusEnum = pgEnum("pay_statement_status", [
+  "pending",
+  "issued",
+  "failed",
+  "corrected",
+]);
+
+// Worksites — one per physical location on a W-2 entity.
+export const worksites = pgTable(
+  "worksites",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => tenantEntities.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    addressLine1: text("address_line1").notNull(),
+    addressLine2: text("address_line2"),
+    city: text("city").notNull(),
+    state: text("state").notNull(),
+    postalCode: text("postal_code").notNull(),
+    country: text("country").notNull().default("US"),
+    externalId: text("external_id"),
+    wingspanWorksiteId: text("wingspan_worksite_id").unique(),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    entityIdx: index("idx_worksites_entity").on(t.entityId),
+    tenantEnvIdx: index("idx_worksites_tenant_env").on(t.tenantId, t.environment),
+  }),
+);
+
+// State jurisdiction config — gates worksite creation per state. The actual
+// registrations (withholding/SUTA/PFML/SDI) happen out-of-band; this table
+// just tracks completion so the operator can unlock worksite creation.
+export const stateJurisdictionConfigs = pgTable(
+  "state_jurisdiction_configs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => tenantEntities.id, { onDelete: "restrict" }),
+    state: text("state").notNull(),
+    status: jurisdictionConfigStatusEnum("status").notNull().default("pending"),
+    notes: text("notes"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    entityStateEnvUniq: uniqueIndex("idx_state_jur_entity_state_env").on(
+      t.entityId,
+      t.state,
+      t.environment,
+    ),
+    tenantEnvIdx: index("idx_state_jur_tenant_env").on(t.tenantId, t.environment),
+  }),
+);
+
+// Engagement templates — per-role bundles of W-4 / I-9 / license / background
+// requirements that a worker inherits when attached to a W-2 entity via this
+// template.
+export const engagementTemplates = pgTable(
+  "engagement_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => tenantEntities.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    i9Mode: i9ModeEnum("i9_mode").notNull().default("self_managed"),
+    requirements: jsonb("requirements").notNull().default([]),
+    wingspanTemplateId: text("wingspan_template_id").unique(),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tenantEnvIdx: index("idx_eng_templates_tenant_env").on(t.tenantId, t.environment),
+    entityIdx: index("idx_eng_templates_entity").on(t.entityId),
+  }),
+);
+
+// Work logs — captured hours that feed gross-to-net at payroll time.
+export const workLogs = pgTable(
+  "work_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "restrict" }),
+    engagementId: uuid("engagement_id")
+      .notNull()
+      .references(() => engagements.id, { onDelete: "restrict" }),
+    worksiteId: uuid("worksite_id")
+      .notNull()
+      .references(() => worksites.id, { onDelete: "restrict" }),
+    periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+    periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+    quantity: numeric("quantity").notNull(),
+    unit: text("unit").notNull().default("Hours"),
+    rateCents: integer("rate_cents").notNull(),
+    status: workLogStatusEnum("status").notNull().default("draft"),
+    wingspanWorkLogId: text("wingspan_work_log_id").unique(),
+    externalId: text("external_id"),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+  },
+  (t) => ({
+    engagementIdx: index("idx_work_logs_engagement").on(t.engagementId),
+    tenantEnvIdx: index("idx_work_logs_tenant_env").on(t.tenantId, t.environment),
+    statusIdx: index("idx_work_logs_status").on(t.status),
+  }),
+);
+
+// Payrolls — W-2 payment runs (parallel to disbursements for 1099).
+export const payrolls = pgTable(
+  "payrolls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => tenantEntities.id, { onDelete: "restrict" }),
+    type: payrollTypeEnum("type").notNull().default("regular"),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    payDate: date("pay_date").notNull(),
+    status: payrollStatusEnum("status").notNull().default("draft"),
+    wingspanPayrollId: text("wingspan_payroll_id").unique(),
+    totalEmployeeGrossCents: bigint("total_employee_gross_cents", { mode: "number" }).notNull().default(0),
+    totalEmployerTaxCents: bigint("total_employer_tax_cents", { mode: "number" }).notNull().default(0),
+    totalNetCents: bigint("total_net_cents", { mode: "number" }).notNull().default(0),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+  },
+  (t) => ({
+    entityIdx: index("idx_payrolls_entity").on(t.entityId),
+    tenantEnvIdx: index("idx_payrolls_tenant_env").on(t.tenantId, t.environment),
+  }),
+);
+
+// Pay statements — immutable. Corrections create a new row that points back at
+// the original via correctsPayStatementId.
+export const payStatements: ReturnType<typeof pgTable> = pgTable(
+  "pay_statements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    payrollId: uuid("payroll_id")
+      .notNull()
+      .references(() => payrolls.id, { onDelete: "restrict" }),
+    workerId: uuid("worker_id")
+      .notNull()
+      .references(() => workers.id, { onDelete: "restrict" }),
+    engagementId: uuid("engagement_id")
+      .notNull()
+      .references(() => engagements.id, { onDelete: "restrict" }),
+    grossCents: bigint("gross_cents", { mode: "number" }).notNull(),
+    netCents: bigint("net_cents", { mode: "number" }).notNull(),
+    lineItems: jsonb("line_items").notNull().default([]),
+    status: payStatementStatusEnum("status").notNull().default("pending"),
+    wingspanPayStatementId: text("wingspan_pay_statement_id").unique(),
+    correctsPayStatementId: uuid("corrects_pay_statement_id"),
+    environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }),
+  },
+  (t) => ({
+    payrollIdx: index("idx_pay_statements_payroll").on(t.payrollId),
+    workerIdx: index("idx_pay_statements_worker").on(t.workerId),
+    tenantEnvIdx: index("idx_pay_statements_tenant_env").on(t.tenantId, t.environment),
   }),
 );

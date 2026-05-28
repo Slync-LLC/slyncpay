@@ -4,6 +4,8 @@ import { redirect } from "next/navigation";
 import { impersonateTenant, updateTenantStatus } from "../../actions";
 import { DeleteTenantButton } from "./delete-button";
 import { OnboardingLinkButton } from "./onboarding-link-button";
+import { StateJurisdictionRow } from "./state-jurisdiction-row";
+import { StateJurisdictionCreate } from "./state-jurisdiction-create";
 import { ArrowLeft, LogIn, DollarSign, Users, FileText, Banknote, Building2, Key } from "lucide-react";
 
 const API_URL = process.env["API_URL"] ?? "https://slyncpay-api.onrender.com";
@@ -90,6 +92,18 @@ type ApiKey = {
   revokedAt: string | null;
 };
 
+type StateJurisdictionConfig = {
+  id: string;
+  entityId: string;
+  state: string;
+  status: "pending" | "in_progress" | "complete";
+  notes: string | null;
+  completedAt: string | null;
+  environment: "live" | "test";
+  createdAt: string;
+  updatedAt: string;
+};
+
 const STATUS_STYLES: Record<string, string> = {
   active: "bg-green-100 text-green-700",
   provisioning: "bg-yellow-100 text-yellow-700",
@@ -150,7 +164,7 @@ export default async function TenantDetailPage({
   const tab = searchParams.tab ?? "overview";
   const headers = { Authorization: `Bearer ${adminToken}` };
 
-  const [tenantRes, workersRes, payablesRes, disbursementsRes, entitiesRes, apiKeysRes] = await Promise.all([
+  const [tenantRes, workersRes, payablesRes, disbursementsRes, entitiesRes, apiKeysRes, stateJurRes] = await Promise.all([
     fetch(`${API_URL}/v1/admin/tenants/${params.id}`, { headers, cache: "no-store" }),
     tab === "workers"
       ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/workers`, { headers, cache: "no-store" })
@@ -161,11 +175,14 @@ export default async function TenantDetailPage({
     tab === "disbursements"
       ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/disbursements`, { headers, cache: "no-store" })
       : null,
-    tab === "entities"
+    tab === "entities" || tab === "state-jurisdictions"
       ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/entities`, { headers, cache: "no-store" })
       : null,
     tab === "api-keys"
       ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/api-keys`, { headers, cache: "no-store" })
+      : null,
+    tab === "state-jurisdictions"
+      ? fetch(`${API_URL}/v1/admin/tenants/${params.id}/state-jurisdictions`, { headers, cache: "no-store" })
       : null,
   ]);
 
@@ -178,11 +195,13 @@ export default async function TenantDetailPage({
   const disbursementsData: Disbursement[] = disbursementsRes?.ok ? await disbursementsRes.json() : [];
   const entitiesData: Entity[] = entitiesRes?.ok ? await entitiesRes.json() : [];
   const apiKeysData: ApiKey[] = apiKeysRes?.ok ? await apiKeysRes.json() : [];
+  const stateJurData: StateJurisdictionConfig[] = stateJurRes?.ok ? await stateJurRes.json() : [];
 
   const tabs = [
     { id: "overview", label: "Overview" },
     { id: "workers", label: `Workers (${tenant.stats.workersCount})` },
     { id: "entities", label: `Entities (${tenant.stats.entitiesCount})` },
+    { id: "state-jurisdictions", label: "State configs" },
     { id: "payables", label: `Payables (${tenant.stats.payablesCount})` },
     { id: "disbursements", label: `Disbursements (${tenant.stats.disbursementsCount})` },
     { id: "api-keys", label: `API Keys (${tenant.stats.apiKeysCount})` },
@@ -407,6 +426,57 @@ export default async function TenantDetailPage({
                         <div className="font-mono text-foreground break-all">{childEmail ?? "—"}</div>
                         <div className="font-mono text-muted-foreground break-all">{childId ?? "—"}</div>
                       </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* State jurisdictions tab (W-2 prereq) */}
+      {tab === "state-jurisdictions" && (
+        <div className="space-y-4">
+          <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3 py-2">
+            Each W-2 entity needs a state jurisdiction config per state it
+            operates in. The state must be marked &ldquo;complete&rdquo; (registrations
+            in place out-of-band: withholding, SUTA, PFML/SDI) before worksites
+            can be created in that state.
+          </div>
+          <StateJurisdictionCreate
+            tenantId={params.id}
+            entities={entitiesData.map((e) => ({
+              id: e.id,
+              name: e.name,
+              environment: e.environment ?? "live",
+              taxType: e.taxType,
+            }))}
+          />
+          <div className="bg-white border border-border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30 text-xs text-muted-foreground">
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Entity</th>
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Env</th>
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">State</th>
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Status / Notes</th>
+                  <th className="text-left px-4 py-3 font-medium uppercase tracking-wider">Updated</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {stateJurData.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No state jurisdiction configs.</td></tr>
+                )}
+                {stateJurData.map((j) => {
+                  const ent = entitiesData.find((e) => e.id === j.entityId);
+                  return (
+                    <tr key={j.id}>
+                      <td className="px-4 py-3 text-sm">{ent?.name ?? j.entityId.slice(0, 8)}</td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{j.environment}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{j.state}</td>
+                      <StateJurisdictionRow id={j.id} status={j.status} notes={j.notes} />
+                      <td className="px-4 py-3 text-xs text-muted-foreground">{new Date(j.updatedAt).toLocaleDateString()}</td>
                     </tr>
                   );
                 })}

@@ -651,3 +651,101 @@ adminRoutes.get("/tenants/:id/disbursements", async (c) => {
 
   return c.json(rows);
 });
+
+// ─── State jurisdiction configs (W-2 prereq) ──────────────────────────────────
+
+adminRoutes.get("/tenants/:id/state-jurisdictions", async (c) => {
+  const { id } = c.req.param();
+  const { stateJurisdictionConfigs } = await import("@slyncpay/db");
+  const rows = await db
+    .select()
+    .from(stateJurisdictionConfigs)
+    .where(eq(stateJurisdictionConfigs.tenantId, id))
+    .orderBy(desc(stateJurisdictionConfigs.createdAt));
+  return c.json(rows);
+});
+
+adminRoutes.post(
+  "/tenants/:id/state-jurisdictions",
+  zValidator(
+    "json",
+    z.object({
+      entityId: z.string().uuid(),
+      state: z.string().length(2).toUpperCase(),
+      environment: z.enum(["live", "test"]),
+      status: z.enum(["pending", "in_progress", "complete"]).default("pending"),
+      notes: z.string().max(2000).optional(),
+    }),
+  ),
+  async (c) => {
+    const { id: tenantId } = c.req.param();
+    const body = c.req.valid("json");
+    const { stateJurisdictionConfigs } = await import("@slyncpay/db");
+
+    const [row] = await db
+      .insert(stateJurisdictionConfigs)
+      .values({
+        tenantId,
+        entityId: body.entityId,
+        state: body.state,
+        status: body.status,
+        notes: body.notes ?? null,
+        completedAt: body.status === "complete" ? new Date() : null,
+        environment: body.environment,
+      })
+      .returning();
+
+    await logAudit({
+      actorType: "admin",
+      actorId: c.get("admin").adminId,
+      action: "admin.state_jurisdiction.created",
+      resourceType: "state_jurisdiction_config",
+      resourceId: row?.id,
+      metadata: { tenantId, state: body.state, status: body.status },
+      ipAddress: clientIp(c),
+    });
+
+    return c.json(row, 201);
+  },
+);
+
+adminRoutes.patch(
+  "/state-jurisdictions/:id",
+  zValidator(
+    "json",
+    z.object({
+      status: z.enum(["pending", "in_progress", "complete"]),
+      notes: z.string().max(2000).optional(),
+    }),
+  ),
+  async (c) => {
+    const { id } = c.req.param();
+    const body = c.req.valid("json");
+    const { stateJurisdictionConfigs } = await import("@slyncpay/db");
+
+    const [row] = await db
+      .update(stateJurisdictionConfigs)
+      .set({
+        status: body.status,
+        ...(body.notes !== undefined ? { notes: body.notes } : {}),
+        completedAt: body.status === "complete" ? new Date() : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(stateJurisdictionConfigs.id, id))
+      .returning();
+
+    if (!row) throw new ApiError(404, "not_found", "State jurisdiction config not found");
+
+    await logAudit({
+      actorType: "admin",
+      actorId: c.get("admin").adminId,
+      action: "admin.state_jurisdiction.updated",
+      resourceType: "state_jurisdiction_config",
+      resourceId: id,
+      metadata: { status: body.status },
+      ipAddress: clientIp(c),
+    });
+
+    return c.json(row);
+  },
+);
