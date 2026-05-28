@@ -625,7 +625,7 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
   const baseUi = wingspanUiBaseUrl(env);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const url = `${baseUi}/member/onboarding?token=${encodeURIComponent(session.token)}`;
+  const url = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
 
   return c.json({ url, expiresAt, environment: env, onboardingStatus: contractor.onboardingStatus });
 });
