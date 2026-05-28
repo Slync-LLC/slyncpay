@@ -19,27 +19,18 @@ export async function repairContractorWingspanUserId(
   contractor: typeof contractors.$inferSelect,
   environment: WingspanEnvironment,
 ): Promise<string | null> {
-  const wingspan = getWingspanClient(environment);
-
+  // In Wingspan a payee's user shares the same id as the payeeId — session
+  // tokens against /users/organization/user/{payeeId}/session resolve to the
+  // payee user. So if we have the payeeId we already have the userId.
   if (contractor.wingspanPayeeBucketPayeeId) {
-    try {
-      const remote = await wingspan.getPayee(contractor.wingspanPayeeBucketPayeeId);
-      if (remote.user?.userId) {
-        await db
-          .update(contractors)
-          .set({ wingspanUserId: remote.user.userId })
-          .where(eq(contractors.id, contractor.id));
-        return remote.user.userId;
-      }
-    } catch (err) {
-      console.error(
-        `[contractor-repair] getPayee failed for ${contractor.id} (${contractor.wingspanPayeeBucketPayeeId}):`,
-        (err as Error).message,
-      );
-      // fall through and try to create fresh
-    }
+    await db
+      .update(contractors)
+      .set({ wingspanUserId: contractor.wingspanPayeeBucketPayeeId })
+      .where(eq(contractors.id, contractor.id));
+    return contractor.wingspanPayeeBucketPayeeId;
   }
 
+  // No payeeId at all → recreate from the tenant's payee bucket in the right env.
   const [tenant] = await db
     .select({
       wingspanPayeeBucketUserId: tenants.wingspanPayeeBucketUserId,
@@ -56,6 +47,7 @@ export async function repairContractorWingspanUserId(
   if (!payeeBucketUserId) return null;
 
   try {
+    const wingspan = getWingspanClient(environment);
     const created = await wingspan.withChild(payeeBucketUserId).createPayee({
       email: contractor.email,
       ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
@@ -63,12 +55,13 @@ export async function repairContractorWingspanUserId(
       payeeExternalId: contractor.externalId,
       status: "Active",
     });
-    if (!created.user?.userId) return null;
+    const resolvedUserId = created.user?.userId ?? created.payeeId;
+    if (!resolvedUserId) return null;
     await db
       .update(contractors)
-      .set({ wingspanUserId: created.user.userId, wingspanPayeeBucketPayeeId: created.payeeId })
+      .set({ wingspanUserId: resolvedUserId, wingspanPayeeBucketPayeeId: created.payeeId })
       .where(eq(contractors.id, contractor.id));
-    return created.user.userId;
+    return resolvedUserId;
   } catch (err) {
     console.error(`[contractor-repair] createPayee failed for ${contractor.id}:`, (err as Error).message);
     return null;
