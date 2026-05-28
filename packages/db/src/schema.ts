@@ -770,3 +770,39 @@ export const payStatements: ReturnType<typeof pgTable> = pgTable(
     tenantEnvIdx: index("idx_pay_statements_tenant_env").on(t.tenantId, t.environment),
   }),
 );
+
+// ─── Webhooks ────────────────────────────────────────────────────────────────
+
+export const webhookInboundStatusEnum = pgEnum("webhook_inbound_status", [
+  "received",
+  "processed",
+  "failed",
+  "ignored",
+]);
+
+// Inbound webhook events received from Wingspan. Idempotent on
+// wingspan_event_id so retries are safe.
+export const webhookInboundEvents = pgTable(
+  "webhook_inbound_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    source: text("source").notNull().default("wingspan"),
+    eventType: text("event_type").notNull(),
+    wingspanEventId: text("wingspan_event_id").unique(),
+    resourceType: text("resource_type"),
+    resourceId: text("resource_id"),
+    payload: jsonb("payload").notNull(),
+    status: webhookInboundStatusEnum("status").notNull().default("received"),
+    error: text("error"),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+  },
+  (t) => ({
+    statusIdx: index("idx_webhook_inbound_status").on(t.status),
+    resourceIdx: index("idx_webhook_inbound_resource").on(t.resourceType, t.resourceId),
+    eventTypeIdx: index("idx_webhook_inbound_event_type").on(t.eventType),
+  }),
+);
+
+// (webhookEndpoints + webhookDeliveries are defined earlier in this file —
+// originally from migration 0000. Phase 3 only adds webhook_inbound_events.)

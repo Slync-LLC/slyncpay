@@ -16,6 +16,7 @@ import { engagementTemplateRoutes } from "./routes/engagement-templates.js";
 import { workLogRoutes } from "./routes/work-logs.js";
 import { payrollRoutes } from "./routes/payrolls.js";
 import { payStatementRoutes } from "./routes/pay-statements.js";
+import { webhookRoutes } from "./routes/webhooks.js";
 import { payableRoutes } from "./routes/payables.js";
 import { disbursementRoutes } from "./routes/disbursements.js";
 import { adminRoutes } from "./routes/admin.js";
@@ -51,6 +52,8 @@ app.route("/v1/engagement-templates", engagementTemplateRoutes);
 app.route("/v1/work-logs", workLogRoutes);
 app.route("/v1/payrolls", payrollRoutes);
 app.route("/v1/pay-statements", payStatementRoutes);
+// Inbound webhooks from Wingspan — auth is via HMAC signature, not API key.
+app.route("/v1/webhooks", webhookRoutes);
 app.route("/v1/payables", payableRoutes);
 app.route("/v1/disbursements", disbursementRoutes);
 app.route("/v1/admin", adminRoutes);

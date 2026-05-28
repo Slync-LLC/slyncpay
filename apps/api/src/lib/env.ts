@@ -80,3 +80,7 @@ export function hasV3Config(environment: "live" | "test"): boolean {
   }
   return Boolean(env.WINGSPAN_LIVE_V3_API_TOKEN && env.WINGSPAN_LIVE_V3_PARENT_ACCOUNT_ID);
 }
+
+// Shared secret Wingspan signs inbound webhooks with. Set this in the Wingspan
+// dashboard and as WINGSPAN_WEBHOOK_SECRET on the API service.
+export const WINGSPAN_WEBHOOK_SECRET = process.env["WINGSPAN_WEBHOOK_SECRET"] ?? "";
