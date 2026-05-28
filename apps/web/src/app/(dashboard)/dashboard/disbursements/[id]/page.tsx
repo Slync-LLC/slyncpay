@@ -29,6 +29,7 @@ interface DisbursementDetail {
   totalAmountCents: number;
   initiatedAt: string;
   completedAt: string | null;
+  submittedToProcessor?: boolean;
   payables: PayableInDisbursement[];
 }
 

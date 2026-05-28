@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw, CheckCircle2 } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import type { DisbursementDetail, PayableInDisbursement } from "./page";
 
@@ -31,12 +31,26 @@ export function DisbursementDetailClient({
 }) {
   const router = useRouter();
   const isProcessing = detail.status === "processing";
+  const [pending, start] = useTransition();
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   useEffect(() => {
     if (!isProcessing) return;
-    const t = setInterval(() => router.refresh(), 5000);
+    const t = setInterval(() => {
+      start(() => {
+        router.refresh();
+        setLastRefreshed(new Date());
+      });
+    }, 5000);
     return () => clearInterval(t);
   }, [isProcessing, router]);
+
+  function manualRefresh() {
+    start(() => {
+      router.refresh();
+      setLastRefreshed(new Date());
+    });
+  }
 
   return (
     <>
@@ -45,14 +59,25 @@ export function DisbursementDetailClient({
           <h1 className="text-2xl font-bold">Disbursement</h1>
           <p className="text-sm text-muted-foreground font-mono mt-0.5">{detail.id}</p>
         </div>
-        <span
-          className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-medium capitalize ${
-            STATUS_STYLES[detail.status] ?? ""
-          }`}
-        >
-          {isProcessing && <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />}
-          {detail.status}
-        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={manualRefresh}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 text-xs border border-border rounded-md px-2.5 py-1 hover:bg-muted transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`h-3 w-3 ${pending ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <span
+            className={`inline-flex items-center px-2.5 py-1 rounded text-xs font-medium capitalize ${
+              STATUS_STYLES[detail.status] ?? ""
+            }`}
+          >
+            {isProcessing && <Loader2 className="h-3 w-3 mr-1.5 animate-spin" />}
+            {detail.status}
+          </span>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -74,10 +99,26 @@ export function DisbursementDetailClient({
         </div>
       </div>
 
+      {detail.submittedToProcessor !== false && (
+        <div className="bg-green-50 border border-green-200 text-green-800 text-sm rounded-lg px-4 py-2.5 mb-3 flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4" />
+          Submitted to payment processor.
+        </div>
+      )}
+
       {isProcessing && (
-        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg px-4 py-3 mb-6 flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Processing through Wingspan — this page refreshes automatically.
+        <div className="bg-blue-50 border border-blue-200 text-blue-800 text-sm rounded-lg px-4 py-3 mb-6 flex items-start gap-2">
+          <Loader2 className="h-4 w-4 animate-spin mt-0.5 shrink-0" />
+          <div>
+            <div>Processing through the payment processor. This page refreshes every 5 seconds.</div>
+            <div className="text-xs text-blue-700/80 mt-0.5">
+              Sandbox payables stay in &ldquo;processing&rdquo; until the simulated batch settles —
+              status will not change in test mode.
+              {lastRefreshed && (
+                <> Last checked {lastRefreshed.toLocaleTimeString()}.</>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

@@ -74,6 +74,7 @@ export interface DisbursementDTO {
   initiatedAt: Date | string;
   completedAt?: Date | string | null;
   failureReason?: string | null;
+  submittedToProcessor?: boolean;
 }
 
 // ─── Mappers ──────────────────────────────────────────────────────────────────
@@ -139,6 +140,7 @@ export function toPayableDTO(r: AnyRow): PayableDTO {
 }
 
 export function toDisbursementDTO(r: AnyRow): DisbursementDTO {
+  const batchId = r["wingspanBulkBatchId"];
   return {
     id: r["id"] as string,
     entityId: r["entityId"] as string,
@@ -148,5 +150,6 @@ export function toDisbursementDTO(r: AnyRow): DisbursementDTO {
     initiatedAt: r["initiatedAt"] as Date | string,
     ...(r["completedAt"] !== undefined ? { completedAt: r["completedAt"] as Date | string | null } : {}),
     ...(r["failureReason"] !== undefined ? { failureReason: (r["failureReason"] as string | null) ?? null } : {}),
+    submittedToProcessor: typeof batchId === "string" && batchId.length > 0,
   };
 }

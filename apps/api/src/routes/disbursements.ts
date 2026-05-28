@@ -64,6 +64,7 @@ async function refreshDisbursementStatus(
   const rows = await db.select().from(payables).where(eq(payables.disbursementId, disbursement.id));
   const wingspan = getWingspanClient(env).withChild(childUserId);
 
+  const TERMINAL = new Set(["paid", "failed", "cancelled"]);
   const updated: typeof rows = [];
   for (const row of rows) {
     if (!row.wingspanPayableId) {
@@ -72,12 +73,18 @@ async function refreshDisbursementStatus(
     }
     try {
       const remote = await wingspan.getPayable(row.wingspanPayableId);
-      const nextStatus = mapWingspanStatus(remote.status);
-      if (nextStatus !== row.status) {
-        const paidAt = nextStatus === "paid" && !row.paidAt ? new Date() : row.paidAt;
+      const mapped = mapWingspanStatus(remote.status);
+      console.log(
+        `[disbursement-refresh] payable=${row.id} wingspan=${row.wingspanPayableId} remoteStatus=${remote.status} → mapped=${mapped} (current=${row.status})`,
+      );
+      // Only advance to terminal states. Wingspan often reports "Pending"/"Approved"
+      // for batches in flight; don't regress our "processing" back to "pending".
+      const shouldAdvance = TERMINAL.has(mapped) && mapped !== row.status;
+      if (shouldAdvance) {
+        const paidAt = mapped === "paid" && !row.paidAt ? new Date() : row.paidAt;
         const [u] = await db
           .update(payables)
-          .set({ status: nextStatus, paidAt, updatedAt: new Date() })
+          .set({ status: mapped, paidAt, updatedAt: new Date() })
           .where(eq(payables.id, row.id))
           .returning();
         updated.push(u ?? row);
