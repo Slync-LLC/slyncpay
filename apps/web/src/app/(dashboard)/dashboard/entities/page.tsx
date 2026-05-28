@@ -8,6 +8,7 @@ interface Entity {
   einLast4: string | null;
   state: string | null;
   status: string;
+  taxType?: "1099" | "w2";
   createdAt: string;
 }
 
@@ -79,6 +80,9 @@ export default async function EntitiesPage() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold">{e.name}</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${e.taxType === "w2" ? "bg-purple-50 text-purple-700" : "bg-blue-50 text-blue-700"}`}>
+                      {e.taxType === "w2" ? "W-2" : "1099"}
+                    </span>
                     <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[e.status] ?? ""}`}>
                       {STATUS_LABELS[e.status] ?? e.status}
                     </span>

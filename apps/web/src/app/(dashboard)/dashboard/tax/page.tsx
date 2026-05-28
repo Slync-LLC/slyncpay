@@ -1,117 +1,192 @@
-"use client";
+import { apiServerGet, ServerApiError } from "@/lib/api-server";
+import { TaxFormsClient } from "./tax-forms-client";
 
-import { useState } from "react";
-import { Receipt, Download } from "lucide-react";
-import { formatCurrency } from "@/lib/utils";
-
-interface TaxRecord {
-  workerId: string;
-  worker: string;
-  entity: string;
-  year: number;
-  totalPaidCents: number;
-  status: "not_filed" | "filed" | "corrected";
+interface Entity {
+  id: string;
+  name: string;
+  taxType?: "1099" | "w2";
 }
 
-const MOCK_TAX: TaxRecord[] = [
-  { workerId: "c1", worker: "Jane Smith", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 48_200_00, status: "filed" },
-  { workerId: "c3", worker: "Maria Garcia", entity: "NurseIO AZ LLC", year: 2025, totalPaidCents: 31_500_00, status: "filed" },
-  { workerId: "c4", worker: "James Wilson", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 22_800_00, status: "filed" },
-  { workerId: "c2", worker: "John Doe", entity: "NurseIO CA Inc", year: 2025, totalPaidCents: 9_400_00, status: "not_filed" },
-];
+interface Worker {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
+}
 
-const STATUS_STYLES: Record<string, string> = {
-  filed: "bg-green-50 text-green-700",
-  not_filed: "bg-yellow-50 text-yellow-700",
-  corrected: "bg-blue-50 text-blue-700",
-};
+interface Payable {
+  id: string;
+  entityId: string;
+  workerId: string;
+  amountCents: number;
+  status: string;
+  paidAt: string | null;
+  createdAt: string;
+}
 
-const YEARS = [2025, 2024];
+interface PayStatement {
+  id: string;
+  payrollId: string;
+  workerId: string;
+  engagementId: string;
+  grossCents: number;
+  netCents: number;
+  status: string;
+  issuedAt: string | null;
+}
 
-export default function TaxPage() {
-  const [year, setYear] = useState(2025);
-  const records = MOCK_TAX.filter((r) => r.year === year);
-  const eligibleCount = records.filter((r) => r.totalPaidCents >= 60_000).length;
+interface Engagement {
+  id: string;
+  workerId: string;
+  entityId: string;
+  type: "contractor" | "employee";
+}
 
+async function safeGet<T>(path: string): Promise<T | null> {
+  try {
+    return await apiServerGet<T>(path);
+  } catch (err) {
+    if (err instanceof ServerApiError) return null;
+    throw err;
+  }
+}
+
+export default async function TaxFormsPage({
+  searchParams,
+}: {
+  searchParams: { year?: string; entity?: string; type?: string };
+}) {
+  const year = parseInt(searchParams.year ?? `${new Date().getFullYear()}`, 10);
+
+  const [entitiesRaw, workersRaw, payablesRaw, payStatementsRaw, engagementsListRaw] = await Promise.all([
+    safeGet<Entity[]>("/v1/entities"),
+    safeGet<{ data: Worker[] }>("/v1/workers?limit=500"),
+    safeGet<{ data: Payable[] }>("/v1/payables?status=paid&limit=500"),
+    safeGet<{ data: PayStatement[] }>("/v1/pay-statements"),
+    // No tenant-list-all-engagements endpoint yet; aggregating below uses
+    // worker+entity from payables and pay statements anyway.
+    Promise.resolve<{ data: Engagement[] } | null>(null),
+  ]);
+
+  const entities = entitiesRaw ?? [];
+  const workers = workersRaw?.data ?? [];
+  const payables = payablesRaw?.data ?? [];
+  const payStatements = payStatementsRaw?.data ?? [];
+
+  // Aggregate per (worker, entity, taxType, year)
+  type Row = {
+    key: string;
+    workerId: string;
+    workerName: string;
+    workerEmail: string;
+    entityId: string;
+    entityName: string;
+    taxType: "1099" | "w2";
+    year: number;
+    totalCents: number;
+    formType: "1099-NEC" | "W-2" | null;
+    eligible: boolean;
+  };
+
+  const workerById = Object.fromEntries(workers.map((w) => [w.id, w]));
+  const entityById = Object.fromEntries(entities.map((e) => [e.id, e]));
+  const rows = new Map<string, Row>();
+
+  function workerLabel(w: Worker | undefined): string {
+    if (!w) return "Unknown worker";
+    const name = [w.firstName, w.lastName].filter(Boolean).join(" ").trim();
+    return name.length > 0 ? name : w.email;
+  }
+
+  for (const p of payables) {
+    const paidAt = p.paidAt ?? p.createdAt;
+    const py = new Date(paidAt).getFullYear();
+    if (py !== year) continue;
+    const entity = entityById[p.entityId];
+    const taxType = entity?.taxType ?? "1099";
+    if (taxType !== "1099") continue; // 1099 payables only on 1099 entities
+    const key = `${p.workerId}:${p.entityId}:1099:${py}`;
+    if (!rows.has(key)) {
+      rows.set(key, {
+        key,
+        workerId: p.workerId,
+        workerName: workerLabel(workerById[p.workerId]),
+        workerEmail: workerById[p.workerId]?.email ?? "",
+        entityId: p.entityId,
+        entityName: entity?.name ?? "Unknown entity",
+        taxType: "1099",
+        year: py,
+        totalCents: 0,
+        formType: null,
+        eligible: false,
+      });
+    }
+    rows.get(key)!.totalCents += p.amountCents;
+  }
+
+  for (const s of payStatements) {
+    if (s.status !== "issued") continue;
+    const ts = s.issuedAt;
+    if (!ts) continue;
+    const py = new Date(ts).getFullYear();
+    if (py !== year) continue;
+    // Find entity via worker's engagements — not available directly here, so
+    // use payStatement.engagementId only if needed. As a pragmatic fallback,
+    // collapse to one row per worker for now.
+    const key = `${s.workerId}:w2:${py}`;
+    if (!rows.has(key)) {
+      rows.set(key, {
+        key,
+        workerId: s.workerId,
+        workerName: workerLabel(workerById[s.workerId]),
+        workerEmail: workerById[s.workerId]?.email ?? "",
+        entityId: "",
+        entityName: "(see engagement)",
+        taxType: "w2",
+        year: py,
+        totalCents: 0,
+        formType: "W-2",
+        eligible: true,
+      });
+    }
+    rows.get(key)!.totalCents += s.grossCents;
+  }
+
+  // Finalize: 1099-NEC eligibility (>= $600), form type label.
+  for (const r of rows.values()) {
+    if (r.taxType === "1099") {
+      r.eligible = r.totalCents >= 60_000;
+      r.formType = r.eligible ? "1099-NEC" : null;
+    }
+  }
+
+  const allRows = Array.from(rows.values()).sort((a, b) => b.totalCents - a.totalCents);
+
+  const eligibleEntities = entities.map((e) => ({ id: e.id, name: e.name, taxType: e.taxType ?? "1099" }));
+
+  // Render with the year + filters baked into the URL.
   return (
-    <div className="p-8 max-w-5xl">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold">1099s</h1>
-          <p className="text-sm text-muted-foreground">1099-NEC filed for workers earning $600+</p>
-        </div>
-        <div className="flex gap-2">
-          {YEARS.map((y) => (
-            <button
-              key={y}
-              onClick={() => setYear(y)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                year === y
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-white border border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {y}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
-        <div className="bg-white rounded-xl border border-border p-4">
-          <div className="text-xs text-muted-foreground mb-1">Total workers</div>
-          <div className="text-xl font-bold">{records.length}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <div className="text-xs text-muted-foreground mb-1">1099-NEC eligible ($600+)</div>
-          <div className="text-xl font-bold">{eligibleCount}</div>
-        </div>
-        <div className="bg-white rounded-xl border border-border p-4">
-          <div className="text-xs text-muted-foreground mb-1">Filed</div>
-          <div className="text-xl font-bold">{records.filter((r) => r.status === "filed").length}</div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white rounded-xl border border-border overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-border bg-muted/30">
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Worker</th>
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Entity</th>
-              <th className="text-left px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-              <th className="text-right px-5 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Total paid</th>
-              <th className="px-5 py-3" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {records.map((r) => (
-              <tr key={`${r.workerId}-${r.entity}`} className="hover:bg-muted/20">
-                <td className="px-5 py-3.5 text-sm font-medium">{r.worker}</td>
-                <td className="px-5 py-3.5 text-sm text-muted-foreground">{r.entity}</td>
-                <td className="px-5 py-3.5">
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${STATUS_STYLES[r.status]}`}>
-                    {r.status.replace("_", " ")}
-                  </span>
-                </td>
-                <td className="px-5 py-3.5 text-right text-sm font-medium">{formatCurrency(r.totalPaidCents)}</td>
-                <td className="px-5 py-3.5 text-right">
-                  {r.status === "filed" && (
-                    <button className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-                      <Download className="h-3.5 w-3.5" /> PDF
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <p className="mt-4 text-xs text-muted-foreground">
-        1099-NEC forms are automatically generated and e-filed for all eligible workers at year-end through Wingspan's tax filing service.
-      </p>
-    </div>
+    <TaxFormsClient
+      year={year}
+      rows={allRows.map((r) => ({
+        key: r.key,
+        workerId: r.workerId,
+        workerName: r.workerName,
+        workerEmail: r.workerEmail,
+        entityId: r.entityId,
+        entityName: r.entityName,
+        taxType: r.taxType,
+        year: r.year,
+        totalCents: r.totalCents,
+        formType: r.formType,
+        eligible: r.eligible,
+      }))}
+      entities={eligibleEntities}
+      filters={{
+        entity: searchParams.entity ?? "",
+        type: (searchParams.type as "all" | "1099" | "w2" | undefined) ?? "all",
+        year,
+      }}
+    />
   );
 }

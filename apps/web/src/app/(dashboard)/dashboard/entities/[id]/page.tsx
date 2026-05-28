@@ -159,6 +159,9 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
                 <span className="text-xs text-muted-foreground font-mono">EIN {entity.einLast4}</span>
               )}
               {entity.state && <span className="text-xs text-muted-foreground">{entity.state}</span>}
+              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${entity.taxType === "w2" ? "bg-purple-50 text-purple-700" : "bg-blue-50 text-blue-700"}`}>
+                {entity.taxType === "w2" ? "W-2" : "1099"}
+              </span>
               <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_STYLES[entity.status] ?? ""}`}>
                 {entity.status === "pending" ? "Provisioning" : entity.status}
               </span>

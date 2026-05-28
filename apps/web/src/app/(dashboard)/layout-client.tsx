@@ -30,7 +30,7 @@ const navItems = [
   { href: "/dashboard/entities", label: "Entities", icon: Building2 },
   { href: "/dashboard/payables", label: "Payables", icon: FileText },
   { href: "/dashboard/disbursements", label: "Disbursements", icon: Banknote },
-  { href: "/dashboard/tax", label: "1099s", icon: Receipt },
+  { href: "/dashboard/tax", label: "Tax Forms", icon: Receipt },
 ];
 
 const developerItems = [
