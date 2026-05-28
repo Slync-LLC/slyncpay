@@ -1,0 +1,139 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { ChevronLeft } from "lucide-react";
+import { createContractor } from "../actions";
+
+const schema = z.object({
+  externalId: z.string().min(1, "Required"),
+  email: z.string().email("Valid email required"),
+  firstName: z.string().min(1, "Required"),
+  lastName: z.string().min(1, "Required"),
+  entityId: z.string().uuid("Select an entity"),
+});
+
+type FormValues = z.infer<typeof schema>;
+
+export function NewContractorForm({ entities }: { entities: Array<{ id: string; name: string }> }) {
+  const router = useRouter();
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { entityId: entities[0]?.id ?? "" },
+  });
+
+  async function onSubmit(values: FormValues) {
+    setSubmitting(true);
+    setError(null);
+    const result = await createContractor(values);
+    if (!result.ok) {
+      setError(result.error);
+      setSubmitting(false);
+      return;
+    }
+    router.push(`/dashboard/contractors/${result.contractorId}`);
+  }
+
+  return (
+    <div className="p-8 max-w-xl">
+      <Link href="/dashboard/contractors" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-6">
+        <ChevronLeft className="h-4 w-4" />
+        Contractors
+      </Link>
+
+      <h1 className="text-2xl font-bold mb-1">Add contractor</h1>
+      <p className="text-sm text-muted-foreground mb-8">
+        We&apos;ll email the contractor a W-9 and payout setup link, and attach them to the entity you select so payables can be sent immediately.
+      </p>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">First name</label>
+            <input
+              {...register("firstName")}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            {errors.firstName && <p className="text-xs text-destructive mt-1">{errors.firstName.message}</p>}
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Last name</label>
+            <input
+              {...register("lastName")}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+            {errors.lastName && <p className="text-xs text-destructive mt-1">{errors.lastName.message}</p>}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Email</label>
+          <input
+            {...register("email")}
+            type="email"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+          />
+          {errors.email && <p className="text-xs text-destructive mt-1">{errors.email.message}</p>}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">External ID</label>
+          <p className="text-xs text-muted-foreground mb-1.5">Your internal identifier for this contractor (e.g., nurse-001)</p>
+          <input
+            {...register("externalId")}
+            placeholder="e.g. nurse-001"
+            className="w-full px-3 py-2 text-sm border border-border rounded-md font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+          />
+          {errors.externalId && <p className="text-xs text-destructive mt-1">{errors.externalId.message}</p>}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Entity</label>
+          <p className="text-xs text-muted-foreground mb-1.5">
+            The legal entity that will pay this contractor. You can attach them to more entities later.
+          </p>
+          <select
+            {...register("entityId")}
+            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+          >
+            {entities.map((e) => (
+              <option key={e.id} value={e.id}>{e.name}</option>
+            ))}
+          </select>
+          {errors.entityId && <p className="text-xs text-destructive mt-1">{errors.entityId.message}</p>}
+        </div>
+
+        {error && (
+          <div className="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">{error}</div>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          <button
+            type="submit"
+            disabled={submitting}
+            className="bg-primary text-primary-foreground px-5 py-2 rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {submitting ? "Adding…" : "Add contractor"}
+          </button>
+          <Link
+            href="/dashboard/contractors"
+            className="px-5 py-2 rounded-md text-sm font-medium border border-border hover:bg-muted transition-colors"
+          >
+            Cancel
+          </Link>
+        </div>
+      </form>
+    </div>
+  );
+}

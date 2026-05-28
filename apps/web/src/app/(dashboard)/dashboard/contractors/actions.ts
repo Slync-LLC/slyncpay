@@ -8,20 +8,35 @@ interface CreateContractorInput {
   email: string;
   firstName: string;
   lastName: string;
+  entityId: string;
 }
 
 export async function createContractor(input: CreateContractorInput): Promise<
   { ok: true; contractorId: string } | { ok: false; error: string }
 > {
+  const { entityId, ...contractorBody } = input;
+  let contractorId: string;
   try {
-    const created = await apiServerJson<{ id: string }>("/v1/contractors", input);
-    return { ok: true, contractorId: created.id };
+    const created = await apiServerJson<{ id: string }>("/v1/contractors", contractorBody);
+    contractorId = created.id;
   } catch (err) {
-    if (err instanceof ServerApiError) {
-      return { ok: false, error: err.message };
-    }
+    if (err instanceof ServerApiError) return { ok: false, error: err.message };
     return { ok: false, error: "Could not reach the server. Please try again." };
   }
+
+  // Attach to the selected entity (creates the engagement). If this fails the
+  // contractor is still saved — the user can attach manually from the detail page.
+  try {
+    await apiServerJson(`/v1/contractors/${contractorId}/engagements`, { entityId });
+  } catch (err) {
+    const detail = err instanceof ServerApiError ? err.message : "Network error";
+    return {
+      ok: false,
+      error: `Contractor created but couldn't attach to entity: ${detail}. Attach from the contractor detail page.`,
+    };
+  }
+
+  return { ok: true, contractorId };
 }
 
 export async function attachContractorToEntity(
