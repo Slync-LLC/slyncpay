@@ -17,6 +17,7 @@ type Tenant = {
   disbursementFeeBps: number;
   perTxFeeCents: number;
   wingspanPayeeBucketUserId: string | null;
+  wingspanPayeeBucketUserIdSandbox?: string | null;
   createdAt: string;
   provisionedAt: string | null;
   stats: {
@@ -36,6 +37,7 @@ type Contractor = {
   lastName: string | null;
   email: string;
   onboardingStatus: string;
+  environment?: string;
   createdAt: string;
 };
 
@@ -44,6 +46,8 @@ type Payable = {
   amountCents: number;
   status: string;
   externalReferenceId: string | null;
+  wingspanPayableId?: string | null;
+  environment?: string;
   createdAt: string;
   paidAt: string | null;
 };
@@ -55,6 +59,8 @@ type Disbursement = {
   totalAmountCents: number;
   initiatedAt: string;
   completedAt: string | null;
+  wingspanBulkBatchId?: string | null;
+  environment?: string;
 };
 
 type Entity = {
@@ -63,7 +69,11 @@ type Entity = {
   ein: string | null;
   state: string | null;
   status: string;
+  environment?: string;
   wingspanChildUserId: string | null;
+  wingspanChildUserEmail?: string | null;
+  wingspanChildUserIdSandbox?: string | null;
+  wingspanChildUserEmailSandbox?: string | null;
   createdAt: string;
 };
 
@@ -252,7 +262,8 @@ export default async function TenantDetailPage({
               ["Plan", tenant.plan],
               ["Disbursement fee (bps)", tenant.disbursementFeeBps],
               ["Per-transaction fee", `${tenant.perTxFeeCents}¢`],
-              ["Wingspan Payee Bucket", tenant.wingspanPayeeBucketUserId ?? "—"],
+              ["Wingspan Payee Bucket (live)", tenant.wingspanPayeeBucketUserId ?? "—"],
+              ["Wingspan Payee Bucket (sandbox)", tenant.wingspanPayeeBucketUserIdSandbox ?? "—"],
               ["Created", new Date(tenant.createdAt).toLocaleString()],
               ["Provisioned", tenant.provisionedAt ? new Date(tenant.provisionedAt).toLocaleString() : "—"],
             ].map(([label, value]) => (
@@ -330,38 +341,55 @@ export default async function TenantDetailPage({
 
       {/* Entities tab */}
       {tab === "entities" && (
-        <div className="bg-white border border-border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">EIN</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">State</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Wingspan ID</th>
-                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Created</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {entitiesData.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No entities.</td></tr>
-              )}
-              {entitiesData.map((e) => (
-                <tr key={e.id}>
-                  <td className="px-4 py-3 font-medium">{e.name}</td>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{e.ein ? "••••••" + e.ein.slice(-4) : "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground">{e.state ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <span className={`inline-flex px-2 py-0.5 rounded text-xs capitalize ${STATUS_STYLES[e.status] ?? ""}`}>
-                      {e.status}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{e.wingspanChildUserId ?? "—"}</td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(e.createdAt).toLocaleDateString()}</td>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-xs px-3 py-2">
+            Payables created against an entity live inside that entity&apos;s Wingspan child user.
+            To see them in the Wingspan UI, log into the parent org and switch user context
+            to the child shown below (or open the &ldquo;Acting as&rdquo; menu).
+          </div>
+          <div className="bg-white border border-border rounded-xl overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Env</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">EIN</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Wingspan child user</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {entitiesData.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No entities.</td></tr>
+                )}
+                {entitiesData.map((e) => {
+                  const isSandbox = e.environment === "test";
+                  const childId = isSandbox ? e.wingspanChildUserIdSandbox : e.wingspanChildUserId;
+                  const childEmail = isSandbox ? e.wingspanChildUserEmailSandbox : e.wingspanChildUserEmail;
+                  return (
+                    <tr key={e.id}>
+                      <td className="px-4 py-3 font-medium">{e.name}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 rounded text-xs ${isSandbox ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                          {e.environment ?? "live"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{e.ein ? "••••••" + e.ein.slice(-4) : "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 rounded text-xs capitalize ${STATUS_STYLES[e.status] ?? ""}`}>
+                          {e.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        <div className="font-mono text-foreground break-all">{childEmail ?? "—"}</div>
+                        <div className="font-mono text-muted-foreground break-all">{childId ?? "—"}</div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -372,24 +400,32 @@ export default async function TenantDetailPage({
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Reference</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Env</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Wingspan payable ID</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Created</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {payablesData.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No payables.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No payables.</td></tr>
               )}
               {payablesData.map((p) => (
                 <tr key={p.id}>
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{p.externalReferenceId ?? p.id.slice(0, 8)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-0.5 rounded text-xs ${p.environment === "test" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                      {p.environment ?? "live"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right font-medium tabular-nums">{fmt(p.amountCents)}</td>
                   <td className="px-4 py-3">
                     <span className={`inline-flex px-2 py-0.5 rounded text-xs capitalize ${STATUS_STYLES[p.status] ?? ""}`}>
                       {p.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground break-all">{p.wingspanPayableId ?? "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(p.createdAt).toLocaleDateString()}</td>
                 </tr>
               ))}
@@ -405,19 +441,26 @@ export default async function TenantDetailPage({
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">ID</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Env</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Payables</th>
                 <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Amount</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Wingspan batch ID</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Initiated</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {disbursementsData.length === 0 && (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No disbursements.</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">No disbursements.</td></tr>
               )}
               {disbursementsData.map((d) => (
                 <tr key={d.id}>
                   <td className="px-4 py-3 font-mono text-xs text-muted-foreground">{d.id.slice(0, 8)}</td>
+                  <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-0.5 rounded text-xs ${d.environment === "test" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                      {d.environment ?? "live"}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-right tabular-nums">{d.totalPayablesCount}</td>
                   <td className="px-4 py-3 text-right font-medium tabular-nums">{fmt(d.totalAmountCents)}</td>
                   <td className="px-4 py-3">
@@ -425,6 +468,7 @@ export default async function TenantDetailPage({
                       {d.status}
                     </span>
                   </td>
+                  <td className="px-4 py-3 font-mono text-xs text-muted-foreground break-all">{d.wingspanBulkBatchId ?? "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(d.initiatedAt).toLocaleDateString()}</td>
                 </tr>
               ))}
