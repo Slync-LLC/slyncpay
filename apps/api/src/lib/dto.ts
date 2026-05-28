@@ -25,6 +25,7 @@ export interface ContractorDTO {
   onboardingStatus: string;
   metadata?: unknown;
   w9SeededData?: unknown;
+  ssnLast4?: string | null;
   createdAt: Date | string;
   updatedAt?: Date | string;
 }
@@ -89,6 +90,7 @@ export function toContractorDTO(r: AnyRow): ContractorDTO {
     onboardingStatus: r["onboardingStatus"] as string,
     ...(r["metadata"] !== undefined ? { metadata: r["metadata"] } : {}),
     ...(r["w9SeededData"] !== undefined ? { w9SeededData: r["w9SeededData"] } : {}),
+    ...(r["ssnLast4"] !== undefined ? { ssnLast4: (r["ssnLast4"] as string | null) ?? null } : {}),
     createdAt: r["createdAt"] as Date | string,
     ...(r["updatedAt"] !== undefined ? { updatedAt: r["updatedAt"] as Date | string } : {}),
   };

@@ -10,6 +10,10 @@ import { attachContractorToEntity, payContractorNow, updateContractor } from "..
 type Tab = "overview" | "payments" | "entities" | "1099s";
 
 interface W9Prefill {
+  middleName?: string | null;
+  jobTitle?: string | null;
+  dateOfBirth?: string | null;
+  phone?: string | null;
   country?: string | null;
   addressLine1?: string | null;
   addressLine2?: string | null;
@@ -27,6 +31,7 @@ interface Contractor {
   onboardingStatus: string;
   createdAt: string;
   w9SeededData?: W9Prefill | null;
+  ssnLast4?: string | null;
 }
 
 interface Engagement {
@@ -537,7 +542,12 @@ function EditContractorModal({
   const router = useRouter();
   const seed = contractor.w9SeededData ?? {};
   const [firstName, setFirstName] = useState(contractor.firstName ?? "");
+  const [middleName, setMiddleName] = useState(seed.middleName ?? "");
   const [lastName, setLastName] = useState(contractor.lastName ?? "");
+  const [jobTitle, setJobTitle] = useState(seed.jobTitle ?? "");
+  const [dateOfBirth, setDateOfBirth] = useState(seed.dateOfBirth ?? "");
+  const [phone, setPhone] = useState(seed.phone ?? "");
+  const [ssn, setSsn] = useState("");
   const [addressLine1, setAddressLine1] = useState(seed.addressLine1 ?? "");
   const [addressLine2, setAddressLine2] = useState(seed.addressLine2 ?? "");
   const [city, setCity] = useState(seed.city ?? "");
@@ -551,6 +561,10 @@ function EditContractorModal({
     setErr(null);
     start(async () => {
       const w9Prefill: Record<string, string> = {};
+      if (middleName.trim()) w9Prefill["middleName"] = middleName.trim();
+      if (jobTitle.trim()) w9Prefill["jobTitle"] = jobTitle.trim();
+      if (dateOfBirth.trim()) w9Prefill["dateOfBirth"] = dateOfBirth.trim();
+      if (phone.trim()) w9Prefill["phone"] = phone.trim();
       if (country.trim()) w9Prefill["country"] = country.trim().toUpperCase();
       if (addressLine1.trim()) w9Prefill["addressLine1"] = addressLine1.trim();
       if (addressLine2.trim()) w9Prefill["addressLine2"] = addressLine2.trim();
@@ -558,11 +572,20 @@ function EditContractorModal({
       if (stateVal.trim()) w9Prefill["state"] = stateVal.trim();
       if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.trim();
 
-      const res = await updateContractor(contractor.id, {
+      const ssnDigits = ssn.replace(/\D/g, "");
+      const payload: Parameters<typeof updateContractor>[1] = {
         firstName: firstName.trim() || null,
         lastName: lastName.trim() || null,
         ...(Object.keys(w9Prefill).length ? { w9Prefill } : {}),
-      });
+      };
+      if (ssnDigits.length === 9) {
+        payload.ssn = ssnDigits;
+      } else if (ssnDigits.length > 0) {
+        setErr("SSN must be 9 digits");
+        return;
+      }
+
+      const res = await updateContractor(contractor.id, payload);
       if (!res.ok) {
         setErr(res.error);
         return;
@@ -581,9 +604,9 @@ function EditContractorModal({
           their next session link. Email and external ID can&apos;t be changed.
         </p>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <div>
-            <label className="block text-sm font-medium mb-1.5">First name</label>
+            <label className="block text-sm font-medium mb-1.5">Legal first name</label>
             <input
               type="text"
               value={firstName}
@@ -592,7 +615,16 @@ function EditContractorModal({
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Last name</label>
+            <label className="block text-sm font-medium mb-1.5">Middle name</label>
+            <input
+              type="text"
+              value={middleName}
+              onChange={(e) => setMiddleName(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Legal last name</label>
             <input
               type="text"
               value={lastName}
@@ -602,8 +634,59 @@ function EditContractorModal({
           </div>
         </div>
 
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Job title / occupation</label>
+            <input
+              type="text"
+              value={jobTitle}
+              onChange={(e) => setJobTitle(e.target.value)}
+              placeholder="e.g. Travel nurse"
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Date of birth</label>
+            <input
+              type="date"
+              value={dateOfBirth}
+              onChange={(e) => setDateOfBirth(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Phone</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+1 555-555-5555"
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1.5">
+              SSN
+              {contractor.ssnLast4 && (
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">on file ****{contractor.ssnLast4}</span>
+              )}
+            </label>
+            <input
+              type="text"
+              value={ssn}
+              onChange={(e) => setSsn(e.target.value)}
+              placeholder={contractor.ssnLast4 ? "Enter to replace" : "123-45-6789"}
+              maxLength={11}
+              className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary font-mono"
+            />
+          </div>
+        </div>
+
         <div className="mt-4">
-          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Address (W-9 pre-fill)</div>
+          <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Personal address (W-9 pre-fill)</div>
           <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="block text-xs font-medium mb-1">Address line 1</label>

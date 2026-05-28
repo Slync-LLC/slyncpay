@@ -44,6 +44,10 @@ interface UpdateContractorInput {
   lastName?: string | null;
   onboardingStatus?: "invited" | "w9_pending" | "payout_pending" | "active" | "inactive";
   w9Prefill?: {
+    middleName?: string;
+    jobTitle?: string;
+    dateOfBirth?: string;
+    phone?: string;
     country?: string;
     addressLine1?: string;
     addressLine2?: string;
@@ -51,6 +55,7 @@ interface UpdateContractorInput {
     state?: string;
     postalCode?: string;
   };
+  ssn?: string;
 }
 
 export async function updateContractor(

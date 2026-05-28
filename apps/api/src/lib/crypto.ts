@@ -32,3 +32,9 @@ export function maskEin(ein: string): string {
   if (digits.length < 2) return "**-*****";
   return `**-*****${digits.slice(-2)}`;
 }
+
+/** Return last 4 digits of an SSN/ITIN for display. */
+export function ssnLast4(ssn: string): string {
+  const digits = ssn.replace(/\D/g, "");
+  return digits.length >= 4 ? digits.slice(-4) : digits;
+}

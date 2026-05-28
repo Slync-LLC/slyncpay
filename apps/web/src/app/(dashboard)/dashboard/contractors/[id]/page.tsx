@@ -3,6 +3,10 @@ import { notFound } from "next/navigation";
 import { ContractorDetailClient } from "./detail-client";
 
 type W9Prefill = {
+  middleName?: string | null;
+  jobTitle?: string | null;
+  dateOfBirth?: string | null;
+  phone?: string | null;
   country?: string | null;
   addressLine1?: string | null;
   addressLine2?: string | null;
@@ -20,6 +24,7 @@ type Contractor = {
   onboardingStatus: string;
   createdAt: string;
   w9SeededData?: W9Prefill | null;
+  ssnLast4?: string | null;
 };
 
 type Engagement = {

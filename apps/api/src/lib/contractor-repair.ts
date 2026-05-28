@@ -1,8 +1,13 @@
 import { eq } from "@slyncpay/db";
 import { db, contractors, tenants } from "@slyncpay/db";
 import { getWingspanClient, type WingspanEnvironment } from "./wingspan.js";
+import { decrypt } from "./crypto.js";
 
 interface W9Seed {
+  middleName?: string;
+  jobTitle?: string;
+  dateOfBirth?: string;
+  phone?: string;
   country?: string;
   addressLine1?: string;
   addressLine2?: string;
@@ -36,20 +41,31 @@ export async function syncContractorToWingspan(
   if (!payeeBucketUserId) return;
 
   const w9 = (contractor.w9SeededData ?? {}) as W9Seed;
-  const w9Filled: W9Seed = {};
-  if (w9.country) w9Filled.country = w9.country;
-  if (w9.addressLine1) w9Filled.addressLine1 = w9.addressLine1;
-  if (w9.addressLine2) w9Filled.addressLine2 = w9.addressLine2;
-  if (w9.city) w9Filled.city = w9.city;
-  if (w9.state) w9Filled.state = w9.state;
-  if (w9.postalCode) w9Filled.postalCode = w9.postalCode;
+  // Wingspan only accepts country/address/ssn inside payeeW9Data; middleName /
+  // jobTitle / dateOfBirth / phone are silently dropped, so we keep them in
+  // SlyncPay only.
+  const payeeW9: Record<string, string> = {};
+  if (w9.country) payeeW9["country"] = w9.country;
+  if (w9.addressLine1) payeeW9["addressLine1"] = w9.addressLine1;
+  if (w9.addressLine2) payeeW9["addressLine2"] = w9.addressLine2;
+  if (w9.city) payeeW9["city"] = w9.city;
+  if (w9.state) payeeW9["state"] = w9.state;
+  if (w9.postalCode) payeeW9["postalCode"] = w9.postalCode;
+
+  if (contractor.ssnEncrypted) {
+    try {
+      payeeW9["ssn"] = decrypt(contractor.ssnEncrypted);
+    } catch (err) {
+      console.error(`[contractor-sync] failed to decrypt ssn for ${contractor.id}:`, (err as Error).message);
+    }
+  }
 
   try {
     await getWingspanClient(environment).withChild(payeeBucketUserId).updatePayee(payeeId, {
       ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
       ...(contractor.lastName ? { lastName: contractor.lastName } : {}),
       payeeExternalId: contractor.externalId,
-      ...(Object.keys(w9Filled).length ? { payeeW9Data: w9Filled } : {}),
+      ...(Object.keys(payeeW9).length ? { payeeW9Data: payeeW9 } : {}),
     });
   } catch (err) {
     console.error(`[contractor-sync] updatePayee failed for ${contractor.id}:`, (err as Error).message);

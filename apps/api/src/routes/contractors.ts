@@ -4,6 +4,7 @@ import { z } from "zod";
 import { eq, and, desc, count, inArray } from "@slyncpay/db";
 import { db, contractors, engagements, tenantEntities, tenants, payables, disbursements, idempotencyKeys } from "@slyncpay/db";
 import { createHash } from "crypto";
+import { encrypt as encryptSecret, decrypt as decryptSecret, ssnLast4 } from "../lib/crypto.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
@@ -223,19 +224,33 @@ contractorRoutes.get("/:id", async (c) => {
 
   if (!contractor) throw new NotFoundError("Contractor");
 
-  return c.json(toContractorDTO(contractor));
+  return c.json(toContractorDTO(withSsnLast4(contractor)));
 });
+
+function withSsnLast4(c: typeof contractors.$inferSelect): Record<string, unknown> {
+  if (!c.ssnEncrypted) return { ...c, ssnLast4: null };
+  try {
+    return { ...c, ssnLast4: ssnLast4(decryptSecret(c.ssnEncrypted)) };
+  } catch {
+    return { ...c, ssnLast4: null };
+  }
+}
 
 const updateContractorSchema = z.object({
   firstName: z.string().max(100).nullish(),
   lastName: z.string().max(100).nullish(),
   metadata: z.record(z.unknown()).optional(),
   onboardingStatus: z.enum(["invited", "w9_pending", "payout_pending", "active", "inactive"]).optional(),
-  // Address fields seeded into the Wingspan W-9 onboarding form. Stored on
+  // Fields seeded into the Wingspan W-9 onboarding form. Stored on
   // contractors.w9SeededData and synced to Wingspan on the next onboarding-link
-  // request.
+  // request. Wingspan only accepts a subset (address + ssn) — the rest are
+  // kept locally for our own records.
   w9Prefill: z
     .object({
+      middleName: z.string().max(100).optional(),
+      jobTitle: z.string().max(200).optional(),
+      dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dateOfBirth must be YYYY-MM-DD").optional(),
+      phone: z.string().max(30).optional(),
       country: z.string().length(2).toUpperCase().optional(),
       addressLine1: z.string().max(200).optional(),
       addressLine2: z.string().max(200).optional(),
@@ -244,6 +259,8 @@ const updateContractorSchema = z.object({
       postalCode: z.string().max(20).optional(),
     })
     .optional(),
+  // Plain SSN/ITIN; encrypted before persist, never echoed back.
+  ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "ssn must be 9 digits").nullish(),
 });
 
 contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async (c) => {
@@ -270,6 +287,9 @@ contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async
   if (body.metadata !== undefined) updates["metadata"] = body.metadata;
   if (body.onboardingStatus !== undefined) updates["onboardingStatus"] = body.onboardingStatus;
   if (body.w9Prefill !== undefined) updates["w9SeededData"] = body.w9Prefill;
+  if (body.ssn !== undefined) {
+    updates["ssnEncrypted"] = body.ssn ? encryptSecret(body.ssn.replace(/\D/g, "")) : null;
+  }
 
   const [updated] = await db
     .update(contractors)
@@ -289,7 +309,7 @@ contractorRoutes.patch("/:id", zValidator("json", updateContractorSchema), async
     ipAddress: clientIp(c),
   });
 
-  return c.json(toContractorDTO(updated));
+  return c.json(toContractorDTO(withSsnLast4(updated)));
 });
 
 contractorRoutes.delete("/:id", async (c) => {

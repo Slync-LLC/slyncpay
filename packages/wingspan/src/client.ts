@@ -255,6 +255,7 @@ export class WingspanClient {
         city?: string;
         state?: string;
         postalCode?: string;
+        ssn?: string;
       };
     },
   ): Promise<WingspanCreatePayeeResponse> {

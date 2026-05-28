@@ -195,6 +195,9 @@ export const contractors = pgTable(
     environment: apiKeyEnvironmentEnum("environment").notNull().default("live"),
 
     w9SeededData: jsonb("w9_seeded_data"),
+    // AES-256-GCM encrypted SSN/ITIN. Pushed to Wingspan as part of payeeW9Data
+    // to pre-fill the contractor's W-9 form. Tenant DTO exposes ssnLast4 only.
+    ssnEncrypted: text("ssn_encrypted"),
     metadata: jsonb("metadata").notNull().default({}),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
