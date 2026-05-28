@@ -24,6 +24,7 @@ import { startTenantSetupWorker } from "./workers/tenant-setup.worker.js";
 import { startEntitySetupWorker } from "./workers/entity-setup.worker.js";
 import { startTenantSandboxSetupWorker } from "./workers/tenant-sandbox-setup.worker.js";
 import { startEntitySandboxSetupWorker } from "./workers/entity-sandbox-setup.worker.js";
+import { startWebhookDeliveryWorker } from "./workers/webhook-delivery.worker.js";
 import { getTenantSandboxSetupQueue } from "./workers/queues.js";
 import { hasSandboxConfig } from "./lib/wingspan.js";
 import { db, admins, tenants, eq, isNull, and, runMigrations } from "@slyncpay/db";
@@ -149,6 +150,10 @@ async function boot() {
   const entityWorker = startEntitySetupWorker();
   const tenantSandboxWorker = startTenantSandboxSetupWorker();
   const entitySandboxWorker = startEntitySandboxSetupWorker();
+  const webhookDeliveryWorker = startWebhookDeliveryWorker();
+  webhookDeliveryWorker.on("failed", (job, err) => {
+    console.error(`[WebhookDelivery] Job ${job?.id} failed:`, err.message);
+  });
 
   tenantWorker.on("failed", (job, err) => {
     console.error(`[TenantSetup] Job ${job?.id} failed:`, err.message);

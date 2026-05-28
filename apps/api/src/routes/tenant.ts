@@ -372,3 +372,106 @@ tenantRoutes.delete("/api-keys/:id", async (c) => {
 
   return c.json({ ok: true });
 });
+
+// ─── Webhook endpoints (outbound) ────────────────────────────────────────────
+
+tenantRoutes.get("/webhook-endpoints", async (c) => {
+  const { tenantId } = c.var.auth;
+  const { webhookEndpoints } = await import("@slyncpay/db");
+  const rows = await db.select().from(webhookEndpoints).where(eq(webhookEndpoints.tenantId, tenantId));
+  // Never echo the signing secret back; only show a hint.
+  return c.json(
+    rows.map((r) => ({
+      id: r.id,
+      url: r.url,
+      description: r.description,
+      events: r.events,
+      status: r.status,
+      secretHint: `••••${r.signingSecret.slice(-4)}`,
+      createdAt: r.createdAt,
+    })),
+  );
+});
+
+const createEndpointSchema = z.object({
+  url: z.string().url(),
+  description: z.string().max(200).optional(),
+  events: z.array(z.string()).default([]),
+});
+
+tenantRoutes.post(
+  "/webhook-endpoints",
+  zValidator("json", createEndpointSchema),
+  async (c) => {
+    const { tenantId } = c.var.auth;
+    const body = c.req.valid("json");
+    const { webhookEndpoints } = await import("@slyncpay/db");
+    const { randomBytes } = await import("crypto");
+    const signingSecret = `whsec_${randomBytes(32).toString("hex")}`;
+
+    const [row] = await db
+      .insert(webhookEndpoints)
+      .values({
+        tenantId,
+        url: body.url,
+        description: body.description ?? null,
+        events: body.events,
+        signingSecret,
+      })
+      .returning();
+    if (!row) throw new Error("Failed to create webhook endpoint");
+
+    await logAudit({
+      tenantId,
+      actorType: "api_key",
+      actorId: c.var.auth.apiKeyId,
+      action: "webhook_endpoint.created",
+      resourceType: "webhook_endpoint",
+      resourceId: row.id,
+      metadata: { url: body.url, events: body.events },
+      ipAddress: clientIp(c),
+    });
+
+    // Show the secret in plaintext exactly once on the create response.
+    return c.json(
+      {
+        id: row.id,
+        url: row.url,
+        description: row.description,
+        events: row.events,
+        status: row.status,
+        signingSecret,
+        createdAt: row.createdAt,
+      },
+      201,
+    );
+  },
+);
+
+tenantRoutes.delete("/webhook-endpoints/:id", async (c) => {
+  const { tenantId } = c.var.auth;
+  const { id } = c.req.param();
+  const { webhookEndpoints, and } = await import("@slyncpay/db");
+
+  const [row] = await db
+    .select({ id: webhookEndpoints.id })
+    .from(webhookEndpoints)
+    .where(and(eq(webhookEndpoints.id, id), eq(webhookEndpoints.tenantId, tenantId)))
+    .limit(1);
+  if (!row) throw new NotFoundError("Webhook endpoint");
+
+  await db.delete(webhookEndpoints).where(eq(webhookEndpoints.id, id));
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "webhook_endpoint.deleted",
+    resourceType: "webhook_endpoint",
+    resourceId: id,
+    metadata: {},
+    ipAddress: clientIp(c),
+  });
+
+  return c.json({ ok: true });
+});

@@ -11,6 +11,7 @@ import {
   workers,
 } from "@slyncpay/db";
 import { WINGSPAN_WEBHOOK_SECRET } from "../lib/env.js";
+import { emitWebhookEvent } from "../lib/webhook-emit.js";
 
 export const webhookRoutes = new Hono();
 
