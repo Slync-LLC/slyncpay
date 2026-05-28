@@ -17,11 +17,13 @@ import { clientIp } from "../lib/rate-limit.js";
 function mapWingspanStatus(ws: string): "draft" | "pending" | "processing" | "paid" | "failed" | "cancelled" {
   switch (ws.toLowerCase()) {
     case "draft": return "draft";
-    case "pending":
+    case "pending": return "pending";
     case "open":
-    case "approved": return "pending";
+    case "approved":
+    case "overdue": return "pending";
     case "processing":
-    case "in_progress": return "processing";
+    case "in_progress":
+    case "paymentintransit": return "processing";
     case "paid":
     case "complete":
     case "completed": return "paid";
