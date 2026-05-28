@@ -249,6 +249,8 @@ export class WingspanClient {
       lastName?: string;
       payeeExternalId?: string;
       payeeW9Data?: {
+        firstName?: string;
+        lastName?: string;
         country?: string;
         addressLine1?: string;
         addressLine2?: string;

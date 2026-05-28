@@ -41,10 +41,13 @@ export async function syncContractorToWingspan(
   if (!payeeBucketUserId) return;
 
   const w9 = (contractor.w9SeededData ?? {}) as W9Seed;
-  // Wingspan only accepts country/address/ssn inside payeeW9Data; middleName /
-  // jobTitle / dateOfBirth / phone are silently dropped, so we keep them in
-  // SlyncPay only.
+  // Fields Wingspan accepts inside payerOwnedData.payeeW9Data — confirmed via
+  // probe: firstName, lastName, country, addressLine1, addressLine2, city,
+  // state, postalCode, ssn. middleName / jobTitle / dateOfBirth / phone are
+  // silently dropped (contractor fills those in the form themselves).
   const payeeW9: Record<string, string> = {};
+  if (contractor.firstName) payeeW9["firstName"] = contractor.firstName;
+  if (contractor.lastName) payeeW9["lastName"] = contractor.lastName;
   if (w9.country) payeeW9["country"] = w9.country;
   if (w9.addressLine1) payeeW9["addressLine1"] = w9.addressLine1;
   if (w9.addressLine2) payeeW9["addressLine2"] = w9.addressLine2;
@@ -62,6 +65,7 @@ export async function syncContractorToWingspan(
 
   try {
     await getWingspanClient(environment).withChild(payeeBucketUserId).updatePayee(payeeId, {
+      // Top-level firstName/lastName updates the user's display name too.
       ...(contractor.firstName ? { firstName: contractor.firstName } : {}),
       ...(contractor.lastName ? { lastName: contractor.lastName } : {}),
       payeeExternalId: contractor.externalId,
