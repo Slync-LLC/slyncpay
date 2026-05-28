@@ -31,6 +31,7 @@ import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
 import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
+import { repairContractorWingspanUserId } from "../lib/contractor-repair.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -598,13 +599,7 @@ adminRoutes.get("/tenants/:id/contractors", async (c) => {
 adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
   const { id } = c.req.param();
   const [contractor] = await db
-    .select({
-      id: contractors.id,
-      environment: contractors.environment,
-      wingspanUserId: contractors.wingspanUserId,
-      wingspanPayeeBucketPayeeId: contractors.wingspanPayeeBucketPayeeId,
-      onboardingStatus: contractors.onboardingStatus,
-    })
+    .select()
     .from(contractors)
     .where(eq(contractors.id, id))
     .limit(1);
@@ -613,18 +608,9 @@ adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
 
   const env: "live" | "test" = contractor.environment === "test" ? "test" : "live";
 
-  // Backfill wingspanUserId from Wingspan if missing but the payee exists.
   let userId = contractor.wingspanUserId;
-  if (!userId && contractor.wingspanPayeeBucketPayeeId) {
-    try {
-      const remote = await getWingspanClient(env).getPayee(contractor.wingspanPayeeBucketPayeeId);
-      if (remote.user?.userId) {
-        userId = remote.user.userId;
-        await db.update(contractors).set({ wingspanUserId: userId }).where(eq(contractors.id, id));
-      }
-    } catch (err) {
-      console.error(`[admin onboarding-link] Failed to backfill user id for ${id}:`, (err as Error).message);
-    }
+  if (!userId) {
+    userId = await repairContractorWingspanUserId(contractor, env);
   }
 
   if (!userId) {

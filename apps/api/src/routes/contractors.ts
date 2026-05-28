@@ -7,6 +7,7 @@ import { createHash } from "crypto";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from "../lib/errors.js";
 import { getWingspanClient, wingspanUiBaseUrl, hasSandboxConfig, entityChildUserId } from "../lib/wingspan.js";
+import { repairContractorWingspanUserId } from "../lib/contractor-repair.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -330,10 +331,7 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
   const { id } = c.req.param();
 
   const [contractor] = await db
-    .select({
-      wingspanUserId: contractors.wingspanUserId,
-      wingspanPayeeBucketPayeeId: contractors.wingspanPayeeBucketPayeeId,
-    })
+    .select()
     .from(contractors)
     .where(
       and(
@@ -346,19 +344,9 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
 
   if (!contractor) throw new NotFoundError("Contractor");
 
-  // Backfill wingspanUserId from Wingspan if missing but the payee exists.
-  // This handles contractors created before we captured user.userId.
   let userId = contractor.wingspanUserId;
-  if (!userId && contractor.wingspanPayeeBucketPayeeId) {
-    try {
-      const remote = await getWingspanClient(environment).getPayee(contractor.wingspanPayeeBucketPayeeId);
-      if (remote.user?.userId) {
-        userId = remote.user.userId;
-        await db.update(contractors).set({ wingspanUserId: userId }).where(eq(contractors.id, id));
-      }
-    } catch (err) {
-      console.error(`[onboarding-link] Failed to backfill user id for ${id}:`, (err as Error).message);
-    }
+  if (!userId) {
+    userId = await repairContractorWingspanUserId(contractor, environment);
   }
 
   if (!userId) {
