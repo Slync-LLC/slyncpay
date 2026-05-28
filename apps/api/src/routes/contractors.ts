@@ -145,7 +145,7 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
   try {
     const session = await getWingspanClient(environment).getSessionToken(wingspanPayee.user.userId);
     const baseUi = wingspanUiBaseUrl(environment);
-    embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
+    embeddedOnboardingUrl = `${baseUi}/member/onboarding?token=${encodeURIComponent(session.token)}`;
     embeddedOnboardingExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   } catch {
     // Non-fatal
@@ -357,7 +357,7 @@ contractorRoutes.get("/:id/onboarding-link", async (c) => {
   const baseUi = wingspanUiBaseUrl(environment);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
-  const embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
+  const embeddedOnboardingUrl = `${baseUi}/member/onboarding?token=${encodeURIComponent(session.token)}`;
 
   return c.json({
     embeddedOnboardingUrl,

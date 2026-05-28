@@ -78,8 +78,9 @@ export interface WingspanPayApprovedResponse {
 // GET /users/organization/user/{id}/session response
 export interface WingspanSessionTokenResponse {
   token: string;
-  requestingToken: string;
-  expiresAt?: string;
+  sessionType?: string;
+  expiration?: string;
+  userId?: string;
 }
 
 // PATCH /users/customization/{id} — request body shape
