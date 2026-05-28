@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { impersonateTenant, updateTenantStatus } from "../../actions";
 import { DeleteTenantButton } from "./delete-button";
+import { OnboardingLinkButton } from "./onboarding-link-button";
 import { ArrowLeft, LogIn, DollarSign, Users, FileText, Banknote, Building2, Key } from "lucide-react";
 
 const API_URL = process.env["API_URL"] ?? "https://slyncpay-api.onrender.com";
@@ -314,24 +315,38 @@ export default async function TenantDetailPage({
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Name</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Email</th>
+                <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Env</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Status</th>
                 <th className="text-left px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Added</th>
+                <th className="text-right px-4 py-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {contractorsData.length === 0 && (
-                <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">No contractors.</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">No contractors.</td></tr>
               )}
               {contractorsData.map((c) => (
                 <tr key={c.id}>
                   <td className="px-4 py-3">{[c.firstName, c.lastName].filter(Boolean).join(" ") || "—"}</td>
                   <td className="px-4 py-3 text-muted-foreground">{c.email}</td>
                   <td className="px-4 py-3">
+                    <span className={`inline-flex px-2 py-0.5 rounded text-xs ${c.environment === "test" ? "bg-orange-100 text-orange-700" : "bg-green-100 text-green-700"}`}>
+                      {c.environment ?? "live"}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
                     <span className={`inline-flex px-2 py-0.5 rounded text-xs capitalize ${STATUS_STYLES[c.onboardingStatus] ?? ""}`}>
                       {c.onboardingStatus.replace("_", " ")}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
+                  <td className="px-4 py-3 text-right">
+                    <OnboardingLinkButton
+                      contractorId={c.id}
+                      contractorEmail={c.email}
+                      disabled={c.onboardingStatus === "active" || c.onboardingStatus === "inactive"}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>

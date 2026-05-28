@@ -30,7 +30,7 @@ import { adminAuthMiddleware } from "../middleware/admin-auth.js";
 import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
-import { hasSandboxConfig } from "../lib/wingspan.js";
+import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -593,6 +593,34 @@ adminRoutes.get("/tenants/:id/contractors", async (c) => {
     .orderBy(desc(contractors.createdAt));
 
   return c.json(rows);
+});
+
+adminRoutes.post("/contractors/:id/onboarding-link", async (c) => {
+  const { id } = c.req.param();
+  const [contractor] = await db
+    .select({
+      id: contractors.id,
+      environment: contractors.environment,
+      wingspanUserId: contractors.wingspanUserId,
+      onboardingStatus: contractors.onboardingStatus,
+    })
+    .from(contractors)
+    .where(eq(contractors.id, id))
+    .limit(1);
+
+  if (!contractor) throw new ApiError(404, "not_found", "Contractor not found");
+  if (!contractor.wingspanUserId) {
+    throw new ApiError(422, "not_ready", "Contractor does not have an onboarding account yet");
+  }
+
+  const env: "live" | "test" = contractor.environment === "test" ? "test" : "live";
+  const session = await getWingspanClient(env).getSessionToken(contractor.wingspanUserId);
+  const baseUi = wingspanUiBaseUrl(env);
+
+  const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  const url = `${baseUi}/member/onboarding?requestingToken=${session.requestingToken}`;
+
+  return c.json({ url, expiresAt, environment: env, onboardingStatus: contractor.onboardingStatus });
 });
 
 adminRoutes.get("/tenants/:id/payables", async (c) => {
