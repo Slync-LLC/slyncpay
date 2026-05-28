@@ -85,14 +85,97 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function OnboardingLinkCard({
+  url,
+  expiresAt,
+  contractorEmail,
+  contractorName,
+}: {
+  url: string;
+  expiresAt: string | null;
+  contractorEmail: string;
+  contractorName: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const expiresLabel = expiresAt ? new Date(expiresAt).toLocaleString() : null;
+
+  function copyUrl() {
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  const emailSubject = encodeURIComponent("Finish setting up your contractor account");
+  const emailBody = encodeURIComponent(
+    `Hi ${contractorName},\n\nPlease finish onboarding by visiting the link below. It expires in 60 minutes — let me know if you need a fresh one.\n\n${url}\n\nThanks!`,
+  );
+  const mailto = `mailto:${contractorEmail}?subject=${emailSubject}&body=${emailBody}`;
+
+  return (
+    <div className="bg-white rounded-xl border border-border p-5">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <h2 className="text-sm font-semibold flex items-center gap-1.5">
+            <Link2 className="h-4 w-4 text-muted-foreground" />
+            Onboarding link
+          </h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            Send this to {contractorName} so they can finish setting up tax info and payout.
+            {expiresLabel && <> Expires {expiresLabel}.</>}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-stretch gap-2">
+        <div className="flex-1 min-w-0 bg-muted rounded-md px-3 py-2 font-mono text-xs text-foreground overflow-x-auto whitespace-nowrap">
+          {url}
+        </div>
+        <button
+          type="button"
+          onClick={copyUrl}
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3.5 w-3.5 text-green-600" />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy className="h-3.5 w-3.5" />
+              Copy
+            </>
+          )}
+        </button>
+        <a
+          href={mailto}
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+        >
+          <Mail className="h-3.5 w-3.5" />
+          Email
+        </a>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 hover:bg-muted transition-colors"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export function ContractorDetailClient(props: {
   contractor: Contractor;
   engagements: Engagement[];
   entities: Entity[];
   payables: Payable[];
   onboardingUrl: string | null;
+  onboardingExpiresAt: string | null;
 }) {
-  const { contractor: c, engagements, entities, payables, onboardingUrl } = props;
+  const { contractor: c, engagements, entities, payables, onboardingUrl, onboardingExpiresAt } = props;
   const [tab, setTab] = useState<Tab>("overview");
   const [attachOpen, setAttachOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(false);
@@ -142,18 +225,6 @@ export function ContractorDetailClient(props: {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {onboardingUrl && !isArchived && (
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard.writeText(onboardingUrl);
-              }}
-              className="flex items-center gap-1.5 text-sm border border-border rounded-md px-3 py-2 hover:bg-muted transition-colors"
-            >
-              <Link2 className="h-3.5 w-3.5" />
-              Copy onboarding link
-            </button>
-          )}
           <button
             type="button"
             onClick={() => setEditOpen(true)}
@@ -212,6 +283,15 @@ export function ContractorDetailClient(props: {
 
       {tab === "overview" && (
         <div className="grid gap-4">
+          {onboardingUrl && !isArchived && (
+            <OnboardingLinkCard
+              url={onboardingUrl}
+              expiresAt={onboardingExpiresAt}
+              contractorEmail={c.email}
+              contractorName={fullName}
+            />
+          )}
+
           <div className="bg-white rounded-xl border border-border p-5">
             <h2 className="text-sm font-semibold mb-4">Contact information</h2>
             <div className="grid grid-cols-2 gap-4">

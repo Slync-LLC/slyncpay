@@ -69,6 +69,7 @@ export default async function ContractorDetailPage({ params }: { params: { id: s
       entities={entitiesRaw ?? []}
       payables={payablesRaw?.data ?? []}
       onboardingUrl={onboardingLink?.url ?? null}
+      onboardingExpiresAt={onboardingLink?.expiresAt ?? null}
     />
   );
 }
