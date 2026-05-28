@@ -696,6 +696,13 @@ contractorRoutes.post(
       })),
     });
 
+    // Approve immediately so the upcoming pay-approved sweep picks it up.
+    try {
+      await wingspan.approvePayable(processorPayable.payableId);
+    } catch (err) {
+      console.error(`[pay-now] Failed to approve ${processorPayable.payableId}:`, (err as Error).message);
+    }
+
     const [payable] = await db
       .insert(payables)
       .values({

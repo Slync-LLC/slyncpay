@@ -195,12 +195,9 @@ export class WingspanClient {
       collaboratorId: params.collaboratorId,
       dueDate: params.dueDate,
       currency: "USD",
-      // SlyncPay's API is the source of truth — payables are pre-approved by the
-      // tenant making the request. Wingspan's allowed statuses are
-      // Draft|Open|Overdue|Cancelled|Pending|PaymentInTransit|Paid; "Open" is
-      // the post-approval state that pay-approved sweeps. Leaving payables as
-      // Pending forces a manual "Review and approve" step in the Wingspan UI.
-      status: "Open",
+      // Wingspan only accepts Draft or Pending on create. Caller must transition
+      // to Open via approvePayable() to make it sweepable by pay-approved.
+      status: "Pending",
       creditFeeHandling: { payerAbsorbPercentage: 1.0 },
       ...(params.referenceId && { referenceId: params.referenceId }),
       lineItems: params.lineItems.map((li) => ({
@@ -220,6 +217,15 @@ export class WingspanClient {
    */
   getPayable(payableId: string): Promise<{ payableId: string; status: string; [k: string]: unknown }> {
     return this.request("GET", `/payments/payable/${payableId}`);
+  }
+
+  /**
+   * Transition a payable from Pending → Open. pay-approved only sweeps Open
+   * payables, so this must be called after createPayable before the disbursement
+   * batch sweep is triggered.
+   */
+  approvePayable(payableId: string): Promise<{ payableId: string; status: string; [k: string]: unknown }> {
+    return this.request("PATCH", `/payments/payable/${payableId}`, { status: "Open" });
   }
 
   // ─── Disbursements ───────────────────────────────────────────────────────────

@@ -139,6 +139,14 @@ payableRoutes.post("/", zValidator("json", createPayableSchema), async (c) => {
     })),
   });
 
+  // Approve immediately so the next pay-approved sweep picks it up. SlyncPay is
+  // the source of truth; the tenant approved by calling our API.
+  try {
+    await wingspan.approvePayable(wingspanPayable.payableId);
+  } catch (err) {
+    console.error(`[payable.approve] Failed to approve ${wingspanPayable.payableId}:`, (err as Error).message);
+  }
+
   // Persist payable
   const [payable] = await db
     .insert(payables)
