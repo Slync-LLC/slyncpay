@@ -195,7 +195,11 @@ export class WingspanClient {
       collaboratorId: params.collaboratorId,
       dueDate: params.dueDate,
       currency: "USD",
-      status: "Pending",
+      // SlyncPay's API is the source of truth — payables are pre-approved by the
+      // tenant making the request, so create them already Approved. Wingspan's
+      // pay-approved sweep then picks them up; if we left them Pending they'd
+      // require manual review-and-approve in the Wingspan UI.
+      status: "Approved",
       creditFeeHandling: { payerAbsorbPercentage: 1.0 },
       ...(params.referenceId && { referenceId: params.referenceId }),
       lineItems: params.lineItems.map((li) => ({
