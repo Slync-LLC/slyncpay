@@ -1,8 +1,16 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronLeft, Building2, Banknote, Clock, CheckCircle2 } from "lucide-react";
+import { ChevronLeft, Building2, Banknote, Clock, CheckCircle2, ExternalLink } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { apiServerGet, ServerApiError } from "@/lib/api-server";
+
+interface WingspanInfo {
+  environment: "live" | "test";
+  organizationUserId: string;
+  childUserId: string | null;
+  childUserEmail: string | null;
+  uiBaseUrl: string;
+}
 
 interface Entity {
   id: string;
@@ -11,6 +19,7 @@ interface Entity {
   state: string | null;
   status: string;
   createdAt: string;
+  wingspan?: WingspanInfo;
 }
 
 interface Payable {
@@ -134,6 +143,10 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
       )}
 
       <div className="grid gap-4">
+        {entity.wingspan && entity.status === "active" && (
+          <WingspanInfoCard entity={entity.name} wingspan={entity.wingspan} />
+        )}
+
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: "Paid volume", value: formatCurrency(ytdVolumeCents) },
@@ -228,6 +241,48 @@ export default async function EntityDetailPage({ params }: { params: { id: strin
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function WingspanInfoCard({ entity, wingspan }: { entity: string; wingspan: WingspanInfo }) {
+  const isSandbox = wingspan.environment === "test";
+  return (
+    <div className="bg-white rounded-xl border border-border p-5">
+      <div className="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <h2 className="text-sm font-semibold">Payment processor</h2>
+          <p className="text-xs text-muted-foreground mt-1">
+            How {entity} appears inside Wingspan{isSandbox ? " (sandbox)" : ""}. Use the
+            child user ID below to find this entity&apos;s payables in the Wingspan UI —
+            log into the parent org and switch context to this child.
+          </p>
+        </div>
+        <a
+          href={wingspan.uiBaseUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs font-medium border border-border rounded-md px-3 py-1.5 hover:bg-muted transition-colors shrink-0"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          Open Wingspan
+        </a>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <Field label="Wingspan organization (parent)" value={wingspan.organizationUserId} />
+        <Field label="Wingspan child user" value={wingspan.childUserId ?? "—"} />
+        <Field label="Child user email" value={wingspan.childUserEmail ?? "—"} />
+        <Field label="Environment" value={isSandbox ? "Sandbox (stagingapi.wingspan.app)" : "Live (api.wingspan.app)"} />
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground mb-1">{label}</div>
+      <div className="font-mono text-xs break-all">{value}</div>
     </div>
   );
 }

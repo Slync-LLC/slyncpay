@@ -71,3 +71,17 @@ export function entityChildUserId(
   }
   return entity.wingspanChildUserId;
 }
+
+/** Counterpart of entityChildUserId for the auto-generated child user email. */
+export function entityChildUserEmail(
+  entity: {
+    wingspanChildUserEmail: string | null;
+    wingspanChildUserEmailSandbox: string | null;
+  },
+  environment: WingspanEnvironment,
+): string | null {
+  if (environment === "test" && entity.wingspanChildUserEmailSandbox) {
+    return entity.wingspanChildUserEmailSandbox;
+  }
+  return entity.wingspanChildUserEmail;
+}

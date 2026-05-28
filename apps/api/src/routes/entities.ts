@@ -9,6 +9,7 @@ import { encrypt, decrypt, maskEin } from "../lib/crypto.js";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
 import { getEntitySetupQueue } from "../workers/queues.js";
+import { entityChildUserId, entityChildUserEmail, wingspanRootUserId, wingspanUiBaseUrl } from "../lib/wingspan.js";
 import { toEntityDTO } from "../lib/dto.js";
 import { logAudit } from "../lib/audit.js";
 import { clientIp } from "../lib/rate-limit.js";
@@ -149,7 +150,18 @@ entityRoutes.get("/:id", async (c) => {
       last4 = null;
     }
   }
-  return c.json(toEntityDTO({ ...entity, einLast4: last4 }));
+  const childUserId = entityChildUserId(entity, environment);
+  const childUserEmail = entityChildUserEmail(entity, environment);
+  return c.json({
+    ...toEntityDTO({ ...entity, einLast4: last4 }),
+    wingspan: {
+      environment,
+      organizationUserId: wingspanRootUserId(environment),
+      childUserId,
+      childUserEmail,
+      uiBaseUrl: wingspanUiBaseUrl(environment),
+    },
+  });
 });
 
 entityRoutes.delete("/:id", async (c) => {
