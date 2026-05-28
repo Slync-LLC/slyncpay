@@ -27,13 +27,19 @@ const createContractorSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
   w9Prefill: z
     .object({
+      middleName: z.string().max(100).optional(),
+      jobTitle: z.string().max(200).optional(),
+      dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "dateOfBirth must be YYYY-MM-DD").optional(),
+      phone: z.string().max(30).optional(),
       addressLine1: z.string().optional(),
+      addressLine2: z.string().optional(),
       city: z.string().optional(),
       state: z.string().length(2).optional(),
       postalCode: z.string().optional(),
       country: z.string().default("US"),
     })
     .optional(),
+  ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "ssn must be 9 digits").optional(),
 });
 
 contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c) => {
@@ -98,23 +104,28 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
   // Call Wingspan: POST /payments/payee from Payee Bucket context
   const wingspan = getWingspanClient(environment).withChild(payeeBucketUserId);
 
+  // Wingspan's onboarding form pre-fills from payerOwnedData.payeeW9Data, so
+  // mirror name + address + ssn there in addition to the top-level fields.
+  const w9 = body.w9Prefill;
+  const ssnDigits = body.ssn?.replace(/\D/g, "");
+  const payeeW9: Record<string, string> = {};
+  if (body.firstName) payeeW9["firstName"] = body.firstName;
+  if (body.lastName) payeeW9["lastName"] = body.lastName;
+  if (w9?.country) payeeW9["country"] = w9.country;
+  if (w9?.addressLine1) payeeW9["addressLine1"] = w9.addressLine1;
+  if (w9?.addressLine2) payeeW9["addressLine2"] = w9.addressLine2;
+  if (w9?.city) payeeW9["city"] = w9.city;
+  if (w9?.state) payeeW9["state"] = w9.state;
+  if (w9?.postalCode) payeeW9["postalCode"] = w9.postalCode;
+  if (ssnDigits) payeeW9["ssn"] = ssnDigits;
+
   const wingspanPayee = await wingspan.createPayee({
     email: body.email,
     ...(body.firstName ? { firstName: body.firstName } : {}),
     ...(body.lastName ? { lastName: body.lastName } : {}),
     payeeExternalId: body.externalId,
     status: "Active",
-    ...(body.w9Prefill
-      ? {
-          payeeW9Data: {
-            country: body.w9Prefill.country,
-            ...(body.w9Prefill.addressLine1 ? { addressLine1: body.w9Prefill.addressLine1 } : {}),
-            ...(body.w9Prefill.city ? { city: body.w9Prefill.city } : {}),
-            ...(body.w9Prefill.state ? { state: body.w9Prefill.state } : {}),
-            ...(body.w9Prefill.postalCode ? { postalCode: body.w9Prefill.postalCode } : {}),
-          },
-        }
-      : {}),
+    ...(Object.keys(payeeW9).length ? { payeeW9Data: payeeW9 } : {}),
   });
 
   // Save contractor with Wingspan IDs
@@ -132,6 +143,7 @@ contractorRoutes.post("/", zValidator("json", createContractorSchema), async (c)
       environment,
       metadata: body.metadata ?? {},
       w9SeededData: body.w9Prefill ?? null,
+      ssnEncrypted: ssnDigits ? encryptSecret(ssnDigits) : null,
     })
     .returning();
 

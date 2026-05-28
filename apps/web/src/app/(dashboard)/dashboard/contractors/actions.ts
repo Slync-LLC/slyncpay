@@ -9,6 +9,8 @@ interface CreateContractorInput {
   firstName: string;
   lastName: string;
   entityId: string;
+  w9Prefill?: Record<string, string>;
+  ssn?: string;
 }
 
 export async function createContractor(input: CreateContractorInput): Promise<

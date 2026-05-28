@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChevronLeft, ExternalLink, Copy, Check, Mail, Link2, Send, Plus, Monitor, ChevronDown, ChevronUp, Pencil, Archive, RotateCcw } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 import { attachContractorToEntity, payContractorNow, updateContractor } from "../actions";
+import { US_STATES, maskSsn, maskPhone, maskZip } from "@/lib/masks";
 
 type Tab = "overview" | "payments" | "entities" | "1099s";
 
@@ -546,13 +547,13 @@ function EditContractorModal({
   const [lastName, setLastName] = useState(contractor.lastName ?? "");
   const [jobTitle, setJobTitle] = useState(seed.jobTitle ?? "");
   const [dateOfBirth, setDateOfBirth] = useState(seed.dateOfBirth ?? "");
-  const [phone, setPhone] = useState(seed.phone ?? "");
+  const [phone, setPhone] = useState(seed.phone ? maskPhone(seed.phone) : "");
   const [ssn, setSsn] = useState("");
   const [addressLine1, setAddressLine1] = useState(seed.addressLine1 ?? "");
   const [addressLine2, setAddressLine2] = useState(seed.addressLine2 ?? "");
   const [city, setCity] = useState(seed.city ?? "");
   const [stateVal, setStateVal] = useState(seed.state ?? "");
-  const [postalCode, setPostalCode] = useState(seed.postalCode ?? "");
+  const [postalCode, setPostalCode] = useState(seed.postalCode ? maskZip(seed.postalCode) : "");
   const [country, setCountry] = useState(seed.country ?? "US");
   const [err, setErr] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -564,13 +565,13 @@ function EditContractorModal({
       if (middleName.trim()) w9Prefill["middleName"] = middleName.trim();
       if (jobTitle.trim()) w9Prefill["jobTitle"] = jobTitle.trim();
       if (dateOfBirth.trim()) w9Prefill["dateOfBirth"] = dateOfBirth.trim();
-      if (phone.trim()) w9Prefill["phone"] = phone.trim();
+      if (phone.trim()) w9Prefill["phone"] = phone.replace(/\D/g, "");
       if (country.trim()) w9Prefill["country"] = country.trim().toUpperCase();
       if (addressLine1.trim()) w9Prefill["addressLine1"] = addressLine1.trim();
       if (addressLine2.trim()) w9Prefill["addressLine2"] = addressLine2.trim();
       if (city.trim()) w9Prefill["city"] = city.trim();
       if (stateVal.trim()) w9Prefill["state"] = stateVal.trim();
-      if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.trim();
+      if (postalCode.trim()) w9Prefill["postalCode"] = postalCode.replace(/\D/g, "").slice(0, 5);
 
       const ssnDigits = ssn.replace(/\D/g, "");
       const payload: Parameters<typeof updateContractor>[1] = {
@@ -662,8 +663,8 @@ function EditContractorModal({
             <input
               type="tel"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="+1 555-555-5555"
+              onChange={(e) => setPhone(maskPhone(e.target.value))}
+              placeholder="(555) 555-5555"
               className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
             />
           </div>
@@ -671,13 +672,13 @@ function EditContractorModal({
             <label className="block text-sm font-medium mb-1.5">
               SSN
               {contractor.ssnLast4 && (
-                <span className="ml-1.5 text-xs text-muted-foreground font-normal">on file ****{contractor.ssnLast4}</span>
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">on file ***-**-{contractor.ssnLast4}</span>
               )}
             </label>
             <input
               type="text"
               value={ssn}
-              onChange={(e) => setSsn(e.target.value)}
+              onChange={(e) => setSsn(maskSsn(e.target.value))}
               placeholder={contractor.ssnLast4 ? "Enter to replace" : "123-45-6789"}
               maxLength={11}
               className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary font-mono"
@@ -718,21 +719,26 @@ function EditContractorModal({
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">State</label>
-                <input
-                  type="text"
+                <select
                   value={stateVal}
                   onChange={(e) => setStateVal(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
-                />
+                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                >
+                  <option value="">—</option>
+                  {US_STATES.map((s) => (
+                    <option key={s.code} value={s.code}>{s.code} — {s.name}</option>
+                  ))}
+                </select>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium mb-1">Postal code</label>
+                <label className="block text-xs font-medium mb-1">Zip code</label>
                 <input
                   type="text"
                   value={postalCode}
-                  onChange={(e) => setPostalCode(e.target.value)}
+                  onChange={(e) => setPostalCode(maskZip(e.target.value))}
+                  placeholder="12345"
                   className="w-full px-3 py-2 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
                 />
               </div>

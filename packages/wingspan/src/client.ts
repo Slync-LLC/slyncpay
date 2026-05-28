@@ -154,11 +154,15 @@ export class WingspanClient {
     status?: "Active" | "Inactive";
     labels?: Record<string, string>;
     payeeW9Data?: {
+      firstName?: string;
+      lastName?: string;
       country?: string;
       addressLine1?: string;
+      addressLine2?: string;
       city?: string;
       state?: string;
       postalCode?: string;
+      ssn?: string;
     };
   }): Promise<WingspanCreatePayeeResponse> {
     return this.request("POST", "/payments/payee", {
