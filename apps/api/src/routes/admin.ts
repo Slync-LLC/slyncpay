@@ -31,7 +31,11 @@ import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
 import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
-import { repairWorkerWingspanUserId, syncWorkerToWingspan } from "../lib/worker-repair.js";
+import {
+  repairWorkerWingspanUserId,
+  syncWorkerToWingspan,
+  syncWorkerProfileToWingspan,
+} from "../lib/worker-repair.js";
 
 const ADMIN_SESSION_TTL_SECONDS = 60 * 60 * 12; // 12 hours
 const TENANT_IMPERSONATE_TTL_SECONDS = 60 * 60 * 4; // 4 hours
@@ -619,6 +623,12 @@ adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
 
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId);
+    await syncWorkerProfileToWingspan(
+      worker,
+      env,
+      worker.wingspanPayeeBucketPayeeId,
+      worker.id,
+    );
   }
 
   const session = await getWingspanClient(env).getSessionToken(userId);

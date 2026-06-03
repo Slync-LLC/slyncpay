@@ -77,6 +77,74 @@ export async function syncWorkerToWingspan(
 }
 
 /**
+ * Push the worker's prefill fields into the Wingspan User + User.Member
+ * records so the onboarding wizard pre-fills. This complements
+ * `syncWorkerToWingspan` (which writes payerOwnedData.payeeW9Data for TIN
+ * verification) — both code paths are needed because the wizard reads from
+ * User/Member, not from payerOwnedData. See the "NurseIO Onboarding
+ * Prefill: API Recipe" doc from Wingspan.
+ *
+ * Auth: parent token + X-WINGSPAN-USER: {payeeId} (impersonation), set via
+ * `.withChild(payeeId)`.
+ *
+ * Best-effort: errors are logged and swallowed so we never block worker
+ * creation or onboarding-link generation. SSN and phone intentionally not
+ * pushed — Wingspan does not pre-fill them.
+ */
+export async function syncWorkerProfileToWingspan(
+  seed: {
+    firstName?: string | null | undefined;
+    lastName?: string | null | undefined;
+    w9SeededData?: unknown;
+  },
+  environment: WingspanEnvironment,
+  payeeId: string,
+  workerIdForLog: string = payeeId,
+): Promise<void> {
+  const w9 = (seed.w9SeededData ?? {}) as W9Seed;
+  const wingspan = getWingspanClient(environment).withChild(payeeId);
+
+  // PATCH /users/user/{payeeId} — name + DOB + occupation
+  const userProfile: Record<string, string> = {};
+  if (seed.firstName) userProfile["firstName"] = seed.firstName;
+  if (seed.lastName) userProfile["lastName"] = seed.lastName;
+  if (w9.dateOfBirth) userProfile["dateOfBirth"] = w9.dateOfBirth;
+  if (w9.jobTitle) userProfile["occupation"] = w9.jobTitle;
+  if (Object.keys(userProfile).length) {
+    try {
+      await wingspan.updateUserProfile(payeeId, { profile: userProfile });
+    } catch (err) {
+      console.error(
+        `[worker-sync] updateUserProfile ${workerIdForLog}:`,
+        (err as Error).message,
+      );
+    }
+  }
+
+  // PATCH /users/user/member/{payeeId} — addresses
+  const addr: Record<string, string> = {};
+  if (w9.addressLine1) addr["addressLine1"] = w9.addressLine1;
+  if (w9.addressLine2) addr["addressLine2"] = w9.addressLine2;
+  if (w9.city) addr["city"] = w9.city;
+  if (w9.state) addr["state"] = w9.state;
+  if (w9.postalCode) addr["postalCode"] = w9.postalCode;
+  if (w9.country) addr["country"] = w9.country;
+
+  if (Object.keys(addr).length) {
+    try {
+      await wingspan.updateMemberProfile(payeeId, {
+        profile: { address: addr, homeAddress: addr },
+      });
+    } catch (err) {
+      console.error(
+        `[worker-sync] updateMemberProfile ${workerIdForLog}:`,
+        (err as Error).message,
+      );
+    }
+  }
+}
+
+/**
  * Backfills a worker's wingspanUserId for legacy rows missing it.
  *
  * Order of attempts:

@@ -16,7 +16,11 @@ import {
   entityChildUserId,
   entityV3AccountId,
 } from "../lib/wingspan.js";
-import { repairWorkerWingspanUserId, syncWorkerToWingspan } from "../lib/worker-repair.js";
+import {
+  repairWorkerWingspanUserId,
+  syncWorkerToWingspan,
+  syncWorkerProfileToWingspan,
+} from "../lib/worker-repair.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -135,6 +139,33 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
     status: "Active",
     ...(Object.keys(payeeW9).length ? { payeeW9Data: payeeW9 } : {}),
   });
+
+  // If the email was already a Wingspan user in another org, POST /payments/payee
+  // silently returns the existing record but does NOT associate them with us —
+  // organizationAssociation comes back null. Detect that here so we surface a
+  // clear error instead of letting onboarding silently break later.
+  try {
+    const existingUser = await getWingspanClient(environment).getUser(wingspanPayee.user.userId);
+    if (existingUser.organizationAssociation === null) {
+      throw new ConflictError(
+        `This email is already a Wingspan user with another organization. ` +
+          `Ask them to transfer their account or use a different email.`,
+      );
+    }
+  } catch (err) {
+    if (err instanceof ConflictError) throw err;
+    console.error(`[worker-create] getUser check failed:`, (err as Error).message);
+  }
+
+  // Push profile + member fields so the onboarding wizard pre-fills. The
+  // payerOwnedData.payeeW9Data sent above covers TIN verification; these
+  // PATCH calls cover the wizard UI (per Wingspan's recipe).
+  await syncWorkerProfileToWingspan(
+    { firstName: body.firstName, lastName: body.lastName, w9SeededData: body.w9Prefill ?? null },
+    environment,
+    wingspanPayee.user.userId,
+    body.externalId,
+  );
 
   // Save worker with Wingspan IDs
   const [worker] = await db
@@ -409,8 +440,17 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
 
   // Best-effort push latest worker data so the Wingspan onboarding form
   // shows pre-filled name + address. Doesn't block if the PATCH fails.
+  // Both calls are required: syncWorkerToWingspan writes payerOwnedData
+  // (TIN verification); syncWorkerProfileToWingspan writes the User +
+  // User.Member records (wizard UI pre-fill).
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
+    await syncWorkerProfileToWingspan(
+      worker,
+      environment,
+      worker.wingspanPayeeBucketPayeeId,
+      worker.id,
+    );
   }
 
   const session = await getWingspanClient(environment).getSessionToken(userId);

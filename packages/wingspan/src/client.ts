@@ -132,6 +132,73 @@ export class WingspanClient {
     return this.request("GET", `/users/organization/user/${providerUserId}/session`);
   }
 
+  /**
+   * Fetch a user record. Used to detect the "already a Wingspan user with
+   * another org" gotcha: when POST /payments/payee returns an existing user,
+   * organizationAssociation is null instead of pointing at our parent.
+   */
+  getUser(userId: string): Promise<{
+    userId: string;
+    organizationAssociation: { parentUserId: string } | null;
+    [k: string]: unknown;
+  }> {
+    return this.request("GET", `/users/user/${userId}`);
+  }
+
+  /**
+   * Patch the User record (name, DOB, occupation). The wizard reads from
+   * this record, not from payerOwnedData.payeeW9Data — both are needed for
+   * full pre-fill (W9 data → TIN verification; user/member → wizard UI).
+   *
+   * Must be called with X-WINGSPAN-USER: {userId} (impersonation) — use
+   * `.withChild(userId)`.
+   */
+  updateUserProfile(
+    userId: string,
+    body: {
+      profile?: {
+        firstName?: string;
+        lastName?: string;
+        dateOfBirth?: string;
+        occupation?: string;
+      };
+    },
+  ): Promise<unknown> {
+    return this.request("PATCH", `/users/user/${userId}`, body);
+  }
+
+  /**
+   * Patch the User.Member record (business info, mailing + home address).
+   * Counterpart to updateUserProfile — must be called with the same
+   * impersonation header.
+   */
+  updateMemberProfile(
+    userId: string,
+    body: {
+      profile?: {
+        company?: { name?: string; ein?: string };
+        address?: {
+          addressLine1?: string;
+          addressLine2?: string;
+          city?: string;
+          state?: string;
+          postalCode?: string;
+          country?: string;
+        };
+        homeAddress?: {
+          addressLine1?: string;
+          addressLine2?: string;
+          city?: string;
+          state?: string;
+          postalCode?: string;
+          country?: string;
+        };
+      };
+    },
+  ): Promise<unknown> {
+    return this.request("PATCH", `/users/user/member/${userId}`, body);
+  }
+
   // ─── Customization / Branding ────────────────────────────────────────────────
 
   /** Set branding, support, terminology, appearance, org settings on a user. */
