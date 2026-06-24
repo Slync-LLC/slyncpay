@@ -198,6 +198,28 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   // user.userId in the response. Use payeeId for every follow-up call.
   const payeeId = wingspanPayee.payeeId;
 
+  // createPayee returns the EXISTING payee when the email is already on file, so
+  // a brand-new externalId can map to a payeeId we've already stored. That would
+  // trip the unique constraint on wingspan_payee_bucket_payee_id and surface as a
+  // raw 500 — guard it with a clear conflict instead.
+  const [dupePayee] = await db
+    .select({ externalId: workers.externalId })
+    .from(workers)
+    .where(
+      and(
+        eq(workers.tenantId, tenantId),
+        eq(workers.environment, environment),
+        eq(workers.wingspanPayeeBucketPayeeId, payeeId),
+      ),
+    )
+    .limit(1);
+  if (dupePayee) {
+    throw new ConflictError(
+      `This email is already registered to contractor "${dupePayee.externalId}". ` +
+        `Use a different email or edit that contractor.`,
+    );
+  }
+
   // Detect whether the contractor sits in our org chain. Net-new payees created
   // in the bucket are automatically in it; an email that already exists under
   // another payer is not. The reliable test is an IMPERSONATED read: 200 → in
