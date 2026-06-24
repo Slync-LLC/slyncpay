@@ -47,6 +47,36 @@ export interface WingspanClientConfig {
   onCall?: ((entry: WingspanCallLog) => void) | undefined;
 }
 
+/** Federal tax classification accepted by `member.profile.company.structure`. */
+export type WingspanCompanyStructure =
+  | "SoleProprietorship"
+  | "LlcSingleMember"
+  | "CorporationS"
+  | "CorporationC"
+  | "Partnership"
+  | "LLCCorporationS"
+  | "LLCCorporationC"
+  | "LLCPartnership";
+
+export interface WingspanAddress {
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+}
+
+/** Business block on the Member record (drives the Business Information step). */
+export interface WingspanCompany {
+  legalBusinessName?: string;
+  taxId?: string;
+  structure?: WingspanCompanyStructure;
+  phoneNumber?: string;
+  stateOfIncorporation?: string;
+  yearOfIncorporation?: string;
+}
+
 /**
  * Typed wrapper around the Wingspan API.
  *
@@ -213,16 +243,19 @@ export class WingspanClient {
    * this record, not from payerOwnedData.payeeW9Data — both are needed for
    * full pre-fill (W9 data → TIN verification; user/member → wizard UI).
    *
-   * Must be called with X-WINGSPAN-USER: {userId} (impersonation) — use
-   * `.withChild(userId)`.
+   * Must be called with X-WINGSPAN-USER: {payeeId} (impersonation) — use
+   * `.withChild(payeeId)`. The field is `dob`, NOT `dateOfBirth` (verified
+   * against Wingspan staging 2026-06-24).
    */
   updateUserProfile(
     userId: string,
     body: {
       profile?: {
         firstName?: string;
+        middleName?: string;
         lastName?: string;
-        dateOfBirth?: string;
+        preferredName?: string;
+        dob?: string;
         occupation?: string;
       };
     },
@@ -233,33 +266,23 @@ export class WingspanClient {
   /**
    * Patch the User.Member record (business info, mailing + home address).
    * Counterpart to updateUserProfile — must be called with the same
-   * impersonation header.
+   * impersonation header. `memberId` is REQUIRED in the body and equals the
+   * path id (omitting it returns 400; verified 2026-06-24).
    */
   updateMemberProfile(
     userId: string,
     body: {
       profile?: {
-        company?: { name?: string; ein?: string };
-        address?: {
-          addressLine1?: string;
-          addressLine2?: string;
-          city?: string;
-          state?: string;
-          postalCode?: string;
-          country?: string;
-        };
-        homeAddress?: {
-          addressLine1?: string;
-          addressLine2?: string;
-          city?: string;
-          state?: string;
-          postalCode?: string;
-          country?: string;
-        };
+        company?: WingspanCompany;
+        address?: WingspanAddress;
+        homeAddress?: WingspanAddress;
       };
     },
   ): Promise<unknown> {
-    return this.request("PATCH", `/users/user/member/${userId}`, body);
+    return this.request("PATCH", `/users/user/member/${userId}`, {
+      memberId: userId,
+      ...body,
+    });
   }
 
   // ─── Customization / Branding ────────────────────────────────────────────────

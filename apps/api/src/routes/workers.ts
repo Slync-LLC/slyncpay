@@ -52,6 +52,41 @@ const createWorkerSchema = z.object({
     })
     .optional(),
   ssn: z.string().regex(/^\d{3}-?\d{2}-?\d{4}$/, "ssn must be 9 digits").optional(),
+  // Business (LLC/Corp) contractors. When type is "business", `business` carries
+  // the company block; the w9Prefill address is treated as the rep's home
+  // address and `business.address` as the business/mailing address.
+  contractorType: z.enum(["individual", "business"]).default("individual"),
+  business: z
+    .object({
+      legalBusinessName: z.string().max(200).optional(),
+      ein: z.string().regex(/^\d{2}-?\d{7}$/, "ein must be 9 digits").optional(),
+      structure: z
+        .enum([
+          "SoleProprietorship",
+          "LlcSingleMember",
+          "CorporationS",
+          "CorporationC",
+          "Partnership",
+          "LLCCorporationS",
+          "LLCCorporationC",
+          "LLCPartnership",
+        ])
+        .optional(),
+      stateOfIncorporation: z.string().length(2).optional(),
+      yearOfIncorporation: z.string().regex(/^\d{4}$/).optional(),
+      phoneNumber: z.string().max(30).optional(),
+      address: z
+        .object({
+          addressLine1: z.string().optional(),
+          addressLine2: z.string().optional(),
+          city: z.string().optional(),
+          state: z.string().length(2).optional(),
+          postalCode: z.string().optional(),
+          country: z.string().default("US"),
+        })
+        .optional(),
+    })
+    .optional(),
 });
 
 workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
@@ -131,6 +166,25 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   if (w9?.postalCode) payeeW9["postalCode"] = w9.postalCode;
   if (ssnDigits) payeeW9["ssn"] = ssnDigits;
 
+  // Persisted prefill blob (workers.w9SeededData): the personal/W-9 fields plus
+  // the business block. Stored so re-opening the onboarding link re-seeds. EIN
+  // is kept out of here — it's encrypted into workers.einEncrypted.
+  const einDigits = body.business?.ein?.replace(/\D/g, "");
+  const w9SeededData = {
+    ...(body.w9Prefill ?? {}),
+    contractorType: body.contractorType,
+    ...(body.business
+      ? {
+          legalBusinessName: body.business.legalBusinessName,
+          structure: body.business.structure,
+          stateOfIncorporation: body.business.stateOfIncorporation,
+          yearOfIncorporation: body.business.yearOfIncorporation,
+          businessPhone: body.business.phoneNumber,
+          businessAddress: body.business.address,
+        }
+      : {}),
+  };
+
   const wingspanPayee = await wingspan.createPayee({
     email: body.email,
     ...(body.firstName ? { firstName: body.firstName } : {}),
@@ -140,32 +194,39 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
     ...(Object.keys(payeeW9).length ? { payeeW9Data: payeeW9 } : {}),
   });
 
-  // If the email was already a Wingspan user in another org, POST /payments/payee
-  // silently returns the existing record but does NOT associate them with us —
-  // organizationAssociation comes back null. Detect that here so we surface a
-  // clear error instead of letting onboarding silently break later.
+  // The contractor's Wingspan user id IS the top-level payeeId — there is no
+  // user.userId in the response. Use payeeId for every follow-up call.
+  const payeeId = wingspanPayee.payeeId;
+
+  // Detect whether the contractor sits in our org chain. Net-new payees created
+  // in the bucket are automatically in it; an email that already exists under
+  // another payer is not. The reliable test is an IMPERSONATED read: 200 → in
+  // chain (seed the profile), 403 → outside it (skip seeding, let them fill the
+  // wizard manually — payables/payments/1099s still work). Per Wingspan recipe.
+  let inOrgChain = true;
   try {
-    const existingUser = await getWingspanClient(environment).getUser(wingspanPayee.user.userId);
-    if (existingUser.organizationAssociation === null) {
-      throw new ConflictError(
-        `This email is already a Wingspan user with another organization. ` +
-          `Ask them to transfer their account or use a different email.`,
-      );
-    }
+    await getWingspanClient(environment).withChild(payeeId).getUser(payeeId);
   } catch (err) {
-    if (err instanceof ConflictError) throw err;
-    console.error(`[worker-create] getUser check failed:`, (err as Error).message);
+    if (err instanceof WingspanApiError && err.statusCode === 403) {
+      inOrgChain = false;
+      console.warn(`[worker-create] ${payeeId} is outside our org chain — skipping profile seed`);
+    } else {
+      console.error(`[worker-create] org-chain detection failed:`, (err as Error).message);
+    }
   }
 
   // Push profile + member fields so the onboarding wizard pre-fills. The
   // payerOwnedData.payeeW9Data sent above covers TIN verification; these
-  // PATCH calls cover the wizard UI (per Wingspan's recipe).
-  await syncWorkerProfileToWingspan(
-    { firstName: body.firstName, lastName: body.lastName, w9SeededData: body.w9Prefill ?? null },
-    environment,
-    wingspanPayee.user.userId,
-    body.externalId,
-  );
+  // PATCH calls cover the wizard UI (per Wingspan's recipe). Impersonation only
+  // works inside our org chain, so skip when detection said otherwise.
+  if (inOrgChain) {
+    await syncWorkerProfileToWingspan(
+      { firstName: body.firstName, lastName: body.lastName, w9SeededData, ein: einDigits ?? null },
+      environment,
+      payeeId,
+      body.externalId,
+    );
+  }
 
   // Save worker with Wingspan IDs
   const [worker] = await db
@@ -178,11 +239,12 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
       lastName: body.lastName ?? null,
       onboardingStatus: "invited",
       wingspanPayeeBucketPayeeId: wingspanPayee.payeeId,
-      wingspanUserId: wingspanPayee.user.userId,
+      wingspanUserId: payeeId,
       environment,
       metadata: body.metadata ?? {},
-      w9SeededData: body.w9Prefill ?? null,
+      w9SeededData,
       ssnEncrypted: ssnDigits ? encryptSecret(ssnDigits) : null,
+      einEncrypted: einDigits ? encryptSecret(einDigits) : null,
     })
     .returning();
 
@@ -195,7 +257,7 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   let embeddedOnboardingUrl: string | null = null;
   let embeddedOnboardingExpiresAt: string | null = null;
   try {
-    const session = await getWingspanClient(environment).getSessionToken(wingspanPayee.user.userId);
+    const session = await getWingspanClient(environment).getSessionToken(payeeId);
     const baseUi = wingspanUiBaseUrl(environment);
     embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
     embeddedOnboardingExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();

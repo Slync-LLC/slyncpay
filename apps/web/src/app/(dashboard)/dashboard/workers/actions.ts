@@ -11,6 +11,16 @@ interface CreateWorkerInput {
   entityId: string;
   w9Prefill?: Record<string, string>;
   ssn?: string;
+  contractorType?: "individual" | "business";
+  business?: {
+    legalBusinessName?: string;
+    ein?: string;
+    structure?: string;
+    stateOfIncorporation?: string;
+    yearOfIncorporation?: string;
+    phoneNumber?: string;
+    address?: Record<string, string>;
+  };
 }
 
 export async function createWorker(input: CreateWorkerInput): Promise<

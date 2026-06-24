@@ -34,11 +34,15 @@ export interface WingspanAssociateResponse {
   };
 }
 
-// POST /payments/payee response
+// POST /payments/payee response.
+// NOTE: the contractor's user id comes back as the TOP-LEVEL `payeeId`. The
+// `user` object does NOT contain a `userId` (verified against Wingspan staging
+// 2026-06-24) — it's only `{email, status}`. `userId` is typed optional so the
+// compiler forces callers to use `payeeId` and never `user.userId`.
 export interface WingspanCreatePayeeResponse {
   payeeId: string;
   payerId: string;
-  user: WingspanUser;
+  user: { userId?: string; email: string; status?: string };
   payerOwnedData: {
     payeeExternalId?: string;
     status?: string;

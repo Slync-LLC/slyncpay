@@ -219,6 +219,9 @@ export const workers = pgTable(
     // AES-256-GCM encrypted SSN/ITIN. Pushed to Wingspan as part of payeeW9Data
     // to pre-fill the W-9 form. Tenant DTO exposes ssnLast4 only.
     ssnEncrypted: text("ssn_encrypted"),
+    // AES-256-GCM encrypted EIN for business contractors. Decrypted only to seed
+    // the Wingspan company block (member.profile.company.taxId). Never echoed back.
+    einEncrypted: text("ein_encrypted"),
     metadata: jsonb("metadata").notNull().default({}),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

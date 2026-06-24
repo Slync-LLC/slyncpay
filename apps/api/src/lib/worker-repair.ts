@@ -2,18 +2,36 @@ import { eq } from "@slyncpay/db";
 import { db, workers, tenants } from "@slyncpay/db";
 import { getWingspanClient, type WingspanEnvironment } from "./wingspan.js";
 import { decrypt } from "./crypto.js";
+import type { WingspanAddress, WingspanCompany, WingspanCompanyStructure } from "@slyncpay/wingspan";
 
-interface W9Seed {
-  middleName?: string;
-  jobTitle?: string;
-  dateOfBirth?: string;
-  phone?: string;
-  country?: string;
+interface AddressSeed {
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
   state?: string;
   postalCode?: string;
+  country?: string;
+}
+
+/**
+ * Shape of `workers.w9SeededData`. Holds the contractor's prefill data: the
+ * personal fields (also used for the business rep's identity + home address)
+ * plus, for business contractors, the company block and business address. The
+ * EIN itself is NOT stored here — it lives encrypted in `workers.einEncrypted`.
+ */
+interface W9Seed extends AddressSeed {
+  middleName?: string;
+  jobTitle?: string;
+  dateOfBirth?: string;
+  phone?: string;
+  // Business contractor fields
+  contractorType?: "individual" | "business";
+  legalBusinessName?: string;
+  structure?: WingspanCompanyStructure;
+  stateOfIncorporation?: string;
+  yearOfIncorporation?: string;
+  businessPhone?: string;
+  businessAddress?: AddressSeed;
 }
 
 /**
@@ -96,6 +114,10 @@ export async function syncWorkerProfileToWingspan(
     firstName?: string | null | undefined;
     lastName?: string | null | undefined;
     w9SeededData?: unknown;
+    /** Plaintext EIN (create path). Takes precedence over einEncrypted. */
+    ein?: string | null | undefined;
+    /** Encrypted EIN (worker row). Decrypted here when ein isn't supplied. */
+    einEncrypted?: string | null | undefined;
   },
   environment: WingspanEnvironment,
   payeeId: string,
@@ -104,12 +126,33 @@ export async function syncWorkerProfileToWingspan(
   const w9 = (seed.w9SeededData ?? {}) as W9Seed;
   const wingspan = getWingspanClient(environment).withChild(payeeId);
 
-  // PATCH /users/user/{payeeId} — name + DOB + occupation
-  const userProfile: Record<string, string> = {};
-  if (seed.firstName) userProfile["firstName"] = seed.firstName;
-  if (seed.lastName) userProfile["lastName"] = seed.lastName;
-  if (w9.dateOfBirth) userProfile["dateOfBirth"] = w9.dateOfBirth;
-  if (w9.jobTitle) userProfile["occupation"] = w9.jobTitle;
+  let einPlaintext: string | undefined = seed.ein ?? undefined;
+  if (!einPlaintext && seed.einEncrypted) {
+    try {
+      einPlaintext = decrypt(seed.einEncrypted);
+    } catch (err) {
+      console.error(`[worker-sync] failed to decrypt ein for ${workerIdForLog}:`, (err as Error).message);
+    }
+  }
+
+  // PATCH /users/user/{payeeId} — name + DOB + occupation. Field is `dob` (NOT
+  // `dateOfBirth`); `preferredName` + `middleName` also pre-fill. For business
+  // contractors this is the Authorized Representative's identity.
+  const preferredName = [seed.firstName, seed.lastName].filter(Boolean).join(" ");
+  const userProfile: {
+    firstName?: string;
+    middleName?: string;
+    lastName?: string;
+    preferredName?: string;
+    dob?: string;
+    occupation?: string;
+  } = {};
+  if (seed.firstName) userProfile.firstName = seed.firstName;
+  if (w9.middleName) userProfile.middleName = w9.middleName;
+  if (seed.lastName) userProfile.lastName = seed.lastName;
+  if (preferredName) userProfile.preferredName = preferredName;
+  if (w9.dateOfBirth) userProfile.dob = w9.dateOfBirth;
+  if (w9.jobTitle) userProfile.occupation = w9.jobTitle;
   if (Object.keys(userProfile).length) {
     try {
       await wingspan.updateUserProfile(payeeId, { profile: userProfile });
@@ -121,20 +164,39 @@ export async function syncWorkerProfileToWingspan(
     }
   }
 
-  // PATCH /users/user/member/{payeeId} — addresses
-  const addr: Record<string, string> = {};
-  if (w9.addressLine1) addr["addressLine1"] = w9.addressLine1;
-  if (w9.addressLine2) addr["addressLine2"] = w9.addressLine2;
-  if (w9.city) addr["city"] = w9.city;
-  if (w9.state) addr["state"] = w9.state;
-  if (w9.postalCode) addr["postalCode"] = w9.postalCode;
-  if (w9.country) addr["country"] = w9.country;
+  // PATCH /users/user/member/{payeeId} — address (+ company block / home address
+  // for businesses). memberId is injected by the client. For an individual the
+  // personal address is `address`; for a business, `address` is the business
+  // address and `homeAddress` is the rep's personal address.
+  const personalAddr = buildAddress(w9);
+  const isBusiness = w9.contractorType === "business";
 
-  if (Object.keys(addr).length) {
+  const memberProfile: {
+    company?: WingspanCompany;
+    address?: WingspanAddress;
+    homeAddress?: WingspanAddress;
+  } = {};
+
+  if (isBusiness) {
+    const company: WingspanCompany = {};
+    if (w9.legalBusinessName) company.legalBusinessName = w9.legalBusinessName;
+    if (einPlaintext) company.taxId = einPlaintext;
+    if (w9.structure) company.structure = w9.structure;
+    if (w9.businessPhone) company.phoneNumber = w9.businessPhone;
+    if (w9.stateOfIncorporation) company.stateOfIncorporation = w9.stateOfIncorporation;
+    if (w9.yearOfIncorporation) company.yearOfIncorporation = w9.yearOfIncorporation;
+    if (Object.keys(company).length) memberProfile.company = company;
+
+    const businessAddr = buildAddress(w9.businessAddress ?? {});
+    if (Object.keys(businessAddr).length) memberProfile.address = businessAddr;
+    if (Object.keys(personalAddr).length) memberProfile.homeAddress = personalAddr;
+  } else if (Object.keys(personalAddr).length) {
+    memberProfile.address = personalAddr;
+  }
+
+  if (Object.keys(memberProfile).length) {
     try {
-      await wingspan.updateMemberProfile(payeeId, {
-        profile: { address: addr, homeAddress: addr },
-      });
+      await wingspan.updateMemberProfile(payeeId, { profile: memberProfile });
     } catch (err) {
       console.error(
         `[worker-sync] updateMemberProfile ${workerIdForLog}:`,
@@ -142,6 +204,25 @@ export async function syncWorkerProfileToWingspan(
       );
     }
   }
+}
+
+/** Map our stored address fields onto Wingspan's address shape (drops empties). */
+function buildAddress(src: {
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  state?: string;
+  postalCode?: string;
+  country?: string;
+}): WingspanAddress {
+  const a: WingspanAddress = {};
+  if (src.addressLine1) a.addressLine1 = src.addressLine1;
+  if (src.addressLine2) a.addressLine2 = src.addressLine2;
+  if (src.city) a.city = src.city;
+  if (src.state) a.state = src.state;
+  if (src.postalCode) a.postalCode = src.postalCode;
+  if (src.country) a.country = src.country;
+  return a;
 }
 
 /**
