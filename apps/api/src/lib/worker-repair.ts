@@ -138,7 +138,13 @@ export async function syncWorkerProfileToWingspan(
   // PATCH /users/user/{payeeId} — name + DOB + occupation. Field is `dob` (NOT
   // `dateOfBirth`); `preferredName` + `middleName` also pre-fill. For business
   // contractors this is the Authorized Representative's identity.
-  const preferredName = [seed.firstName, seed.lastName].filter(Boolean).join(" ");
+  // Wingspan rejects digits in the legal name fields (firstName/middleName/
+  // lastName) with a 400 ValidationError — verified against staging 2026-06-24
+  // (preferredName + occupation tolerate them). Strip digits before seeding.
+  const firstName = sanitizeName(seed.firstName);
+  const middleName = sanitizeName(w9.middleName);
+  const lastName = sanitizeName(seed.lastName);
+  const preferredName = [firstName, lastName].filter(Boolean).join(" ");
   const userProfile: {
     firstName?: string;
     middleName?: string;
@@ -147,9 +153,9 @@ export async function syncWorkerProfileToWingspan(
     dob?: string;
     occupation?: string;
   } = {};
-  if (seed.firstName) userProfile.firstName = seed.firstName;
-  if (w9.middleName) userProfile.middleName = w9.middleName;
-  if (seed.lastName) userProfile.lastName = seed.lastName;
+  if (firstName) userProfile.firstName = firstName;
+  if (middleName) userProfile.middleName = middleName;
+  if (lastName) userProfile.lastName = lastName;
   if (preferredName) userProfile.preferredName = preferredName;
   if (w9.dateOfBirth) userProfile.dob = w9.dateOfBirth;
   if (w9.jobTitle) userProfile.occupation = w9.jobTitle;
@@ -204,6 +210,17 @@ export async function syncWorkerProfileToWingspan(
       );
     }
   }
+}
+
+/**
+ * Strip digits from a legal name field. Wingspan returns 400 ValidationError if
+ * firstName/middleName/lastName contain numbers. Collapses whitespace and
+ * returns undefined when nothing usable remains.
+ */
+function sanitizeName(s: string | null | undefined): string | undefined {
+  if (!s) return undefined;
+  const cleaned = s.replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
+  return cleaned || undefined;
 }
 
 /** Map our stored address fields onto Wingspan's address shape (drops empties). */
