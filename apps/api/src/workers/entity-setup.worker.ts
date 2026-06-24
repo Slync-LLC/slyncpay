@@ -3,6 +3,7 @@ import { eq } from "@slyncpay/db";
 import { db, tenantEntities, provisioningJobs } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
 import { getWingspanClient, wingspanRootUserId } from "../lib/wingspan.js";
+import { enterRequestContext, setRequestTenant } from "../lib/request-context.js";
 import { ENTITY_SETUP_QUEUE } from "./queues.js";
 
 export interface EntitySetupJobData {
@@ -21,6 +22,7 @@ export function startEntitySetupWorker(): Worker {
     ENTITY_SETUP_QUEUE,
     async (job) => {
       const { entityId, provisioningJobId } = job.data;
+      enterRequestContext({ tenantId: job.data.tenantId });
 
       const [entity] = await db
         .select()
@@ -30,6 +32,7 @@ export function startEntitySetupWorker(): Worker {
       if (!entity) throw new Error(`Entity ${entityId} not found`);
 
       const env = entity.environment;
+      setRequestTenant(job.data.tenantId, env);
       const wingspan = getWingspanClient(env);
 
       await db

@@ -7,6 +7,7 @@ import { getRedis } from "../lib/redis.js";
 import { verifyApiKey, extractPrefix } from "../lib/api-keys.js";
 import { UnauthorizedError } from "../lib/errors.js";
 import { verifyTenantSession } from "../lib/sessions.js";
+import { setRequestTenant } from "../lib/request-context.js";
 
 const CACHE_TTL_SECONDS = 60;
 
@@ -55,6 +56,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
         environment,
         source: "session",
       });
+      setRequestTenant(claims.tenantId, environment);
       await next();
       return;
     } catch {
@@ -72,6 +74,7 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
   if (cached) {
     const parsed = JSON.parse(cached) as AuthContext;
     c.set("auth", parsed);
+    setRequestTenant(parsed.tenantId, parsed.environment);
     await next();
     return;
   }
@@ -127,5 +130,6 @@ export async function authMiddleware(c: Context, next: Next): Promise<void> {
     .catch(() => {});
 
   c.set("auth", authCtx);
+  setRequestTenant(authCtx.tenantId, authCtx.environment);
   await next();
 }

@@ -21,9 +21,30 @@ export class WingspanApiError extends Error {
   }
 }
 
+/**
+ * One outbound Wingspan call, handed to a `onCall` sink for logging. The sink
+ * is responsible for redacting secrets (Authorization header, SSN, tokens) —
+ * the client passes raw values. Invoked for every call, success or failure.
+ */
+export interface WingspanCallLog {
+  apiVersion: "v1" | "v3";
+  method: string;
+  url: string;
+  path: string;
+  requestHeaders: Record<string, string>;
+  requestBody?: unknown;
+  responseStatus: number | null;
+  responseBody?: unknown;
+  requestId?: string | null;
+  durationMs: number;
+  error?: string | undefined;
+}
+
 export interface WingspanClientConfig {
   apiToken: string;
   baseUrl?: string;
+  /** Optional sink invoked once per request (success or failure). Never throws. */
+  onCall?: ((entry: WingspanCallLog) => void) | undefined;
 }
 
 /**
@@ -40,16 +61,21 @@ export class WingspanClient {
   private readonly baseUrl: string;
   private readonly apiToken: string;
   private readonly childUserId: string | null;
+  private readonly onCall?: ((entry: WingspanCallLog) => void) | undefined;
 
   constructor(config: WingspanClientConfig, childUserId: string | null = null) {
     this.apiToken = config.apiToken;
     this.baseUrl = config.baseUrl ?? "https://api.wingspan.app";
     this.childUserId = childUserId;
+    this.onCall = config.onCall;
   }
 
   /** Return a new client scoped to the given child user. */
   withChild(childUserId: string): WingspanClient {
-    return new WingspanClient({ apiToken: this.apiToken, baseUrl: this.baseUrl }, childUserId);
+    return new WingspanClient(
+      { apiToken: this.apiToken, baseUrl: this.baseUrl, onCall: this.onCall },
+      childUserId,
+    );
   }
 
   private headers(): Record<string, string> {
@@ -69,19 +95,56 @@ export class WingspanClient {
     body?: unknown,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
-      method,
-      headers: this.headers(),
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
+    const requestHeaders = this.headers();
+    const startedAt = Date.now();
 
-    const text = await res.text();
+    let res: Response | undefined;
+    let text = "";
     let json: unknown;
+    let networkError: Error | undefined;
     try {
-      json = JSON.parse(text);
-    } catch {
-      json = { message: text };
+      res = await fetch(url, {
+        method,
+        headers: requestHeaders,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      text = await res.text();
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { message: text };
+      }
+    } catch (err) {
+      networkError = err as Error;
     }
+
+    const requestId = res?.headers.get("x-request-id") ?? null;
+
+    if (this.onCall) {
+      try {
+        this.onCall({
+          apiVersion: "v1",
+          method,
+          url,
+          path,
+          requestHeaders,
+          requestBody: body,
+          responseStatus: res?.status ?? null,
+          responseBody: networkError ? undefined : json,
+          requestId,
+          durationMs: Date.now() - startedAt,
+          error: networkError
+            ? networkError.message
+            : res && !res.ok
+              ? `HTTP ${res.status}`
+              : undefined,
+        });
+      } catch {
+        // Logging must never break the call.
+      }
+    }
+
+    if (networkError || !res) throw networkError ?? new Error("Wingspan request failed");
 
     if (!res.ok) {
       let msg: string;
@@ -93,7 +156,7 @@ export class WingspanClient {
       } else {
         msg = `HTTP ${res.status} ${text.slice(0, 200)}`;
       }
-      throw new WingspanApiError(res.status, msg, res.headers.get("x-request-id") ?? undefined);
+      throw new WingspanApiError(res.status, msg, requestId ?? undefined);
     }
 
     return json as T;

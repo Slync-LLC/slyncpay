@@ -3,6 +3,7 @@ import { eq } from "@slyncpay/db";
 import { db, tenants, provisioningJobs } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
 import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
+import { enterRequestContext } from "../lib/request-context.js";
 import { TENANT_SETUP_QUEUE, getTenantSandboxSetupQueue } from "./queues.js";
 
 export interface TenantSetupJobData {
@@ -35,6 +36,7 @@ export function startTenantSetupWorker(): Worker {
     TENANT_SETUP_QUEUE,
     async (job) => {
       const { tenantId, provisioningJobId } = job.data;
+      enterRequestContext({ tenantId, environment: "live" });
       const wingspan = getWingspanClient("live");
       const completed: Step[] = [];
 

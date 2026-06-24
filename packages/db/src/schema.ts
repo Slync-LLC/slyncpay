@@ -535,11 +535,45 @@ export const auditLog = pgTable(
     resourceId: text("resource_id"),
     metadata: jsonb("metadata").notNull().default({}),
     ipAddress: text("ip_address"),
+    // Shared with wingspan_api_log: ties an event to the Wingspan calls it triggered.
+    correlationId: text("correlation_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => ({
     tenantCreatedIdx: index("idx_audit_log_tenant_id").on(t.tenantId, t.createdAt),
     resourceIdx: index("idx_audit_log_resource").on(t.resourceType, t.resourceId),
+    correlationIdx: index("idx_audit_log_correlation").on(t.correlationId),
+  }),
+);
+
+// ─── Wingspan API call log ─────────────────────────────────────────────────────
+//
+// One row per outbound Wingspan request (V1 or V3). Bodies/headers are redacted
+// by the API before insert. Joined to audit_log on correlation_id so the
+// activity UI can render the curl + payload + response behind each event.
+
+export const wingspanApiLog = pgTable(
+  "wingspan_api_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").references(() => tenants.id),
+    correlationId: text("correlation_id"),
+    environment: text("environment"),
+    apiVersion: text("api_version").notNull().default("v1"),
+    method: text("method").notNull(),
+    url: text("url").notNull(),
+    requestHeaders: jsonb("request_headers").notNull().default({}),
+    requestBody: jsonb("request_body"),
+    responseStatus: integer("response_status"),
+    responseBody: jsonb("response_body"),
+    wingspanRequestId: text("wingspan_request_id"),
+    durationMs: integer("duration_ms").notNull().default(0),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    correlationIdx: index("idx_wingspan_api_log_correlation").on(t.correlationId),
+    tenantCreatedIdx: index("idx_wingspan_api_log_tenant").on(t.tenantId, t.createdAt),
   }),
 );
 

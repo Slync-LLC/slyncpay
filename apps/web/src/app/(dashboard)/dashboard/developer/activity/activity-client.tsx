@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { X, Search } from "lucide-react";
 
@@ -15,6 +15,34 @@ export interface ActivityEvent {
   resourceId: string | null;
   metadata: Record<string, unknown> | null;
   ipAddress: string | null;
+  correlationId: string | null;
+}
+
+interface WingspanCall {
+  id: string;
+  timestamp: string;
+  apiVersion: string;
+  method: string;
+  url: string;
+  requestHeaders: Record<string, string> | null;
+  requestBody: unknown;
+  responseStatus: number | null;
+  responseBody: unknown;
+  wingspanRequestId: string | null;
+  durationMs: number;
+  error: string | null;
+}
+
+/** Reconstruct a copy-pasteable curl from a captured (redacted) call. */
+function buildCurl(call: WingspanCall): string {
+  const parts = [`curl -X ${call.method} '${call.url}'`];
+  for (const [k, v] of Object.entries(call.requestHeaders ?? {})) {
+    parts.push(`  -H '${k}: ${v}'`);
+  }
+  if (call.requestBody !== null && call.requestBody !== undefined) {
+    parts.push(`  -d '${JSON.stringify(call.requestBody)}'`);
+  }
+  return parts.join(" \\\n");
 }
 
 const ACTOR_STYLES: Record<string, string> = {
@@ -39,6 +67,34 @@ export function ActivityClient(props: {
   const [selected, setSelected] = useState<ActivityEvent | null>(null);
   const [pending, start] = useTransition();
   const [loadingMore, setLoadingMore] = useState(false);
+  const [calls, setCalls] = useState<WingspanCall[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+
+  // When an event is opened, load the Wingspan calls captured under its
+  // correlation id (the calls that event triggered).
+  useEffect(() => {
+    if (!selected?.correlationId) {
+      setCalls([]);
+      return;
+    }
+    let cancelled = false;
+    setCallsLoading(true);
+    setCalls([]);
+    fetch(`/api/wingspan-calls-proxy?correlationId=${encodeURIComponent(selected.correlationId)}`)
+      .then((res) => (res.ok ? res.json() : { calls: [] }))
+      .then((body: { calls: WingspanCall[] }) => {
+        if (!cancelled) setCalls(body.calls ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setCalls([]);
+      })
+      .finally(() => {
+        if (!cancelled) setCallsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected]);
 
   function updateFilters(patch: Partial<typeof filters>) {
     const params = new URLSearchParams(sp);
@@ -228,6 +284,85 @@ export function ActivityClient(props: {
               <pre className="bg-muted rounded-md p-3 text-xs overflow-auto">
                 {JSON.stringify(selected.metadata ?? {}, null, 2)}
               </pre>
+            </div>
+
+            {/* Wingspan API calls triggered by this event */}
+            <div className="mt-6">
+              <h4 className="text-xs font-medium text-muted-foreground mb-2">
+                Wingspan API calls
+                {calls.length > 0 ? (
+                  <span className="ml-1 text-muted-foreground">({calls.length})</span>
+                ) : null}
+              </h4>
+
+              {callsLoading ? (
+                <p className="text-xs text-muted-foreground">Loading calls…</p>
+              ) : !selected.correlationId ? (
+                <p className="text-xs text-muted-foreground">
+                  No correlation id on this event — calls cannot be traced.
+                </p>
+              ) : calls.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No Wingspan calls were captured for this event.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {calls.map((call) => {
+                    const ok =
+                      call.error === null &&
+                      call.responseStatus !== null &&
+                      call.responseStatus < 400;
+                    return (
+                      <div key={call.id} className="border border-border rounded-md overflow-hidden">
+                        <div className="flex items-center gap-2 px-3 py-2 bg-muted/40 text-xs">
+                          <span className="font-mono font-semibold">{call.method}</span>
+                          <span
+                            className={`inline-flex px-1.5 py-0.5 rounded font-medium ${
+                              ok ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+                            }`}
+                          >
+                            {call.responseStatus ?? "ERR"}
+                          </span>
+                          <span className="font-mono text-muted-foreground truncate flex-1">
+                            {call.url.replace(/^https?:\/\/[^/]+/, "")}
+                          </span>
+                          <span className="text-muted-foreground whitespace-nowrap">
+                            {call.apiVersion} · {call.durationMs}ms
+                          </span>
+                        </div>
+                        <div className="p-3 space-y-3">
+                          {call.error ? (
+                            <div className="text-xs text-red-700 font-mono">{call.error}</div>
+                          ) : null}
+                          <div>
+                            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+                              Request (curl)
+                            </div>
+                            <pre className="bg-muted rounded-md p-3 text-xs overflow-auto whitespace-pre">
+                              {buildCurl(call)}
+                            </pre>
+                          </div>
+                          <div>
+                            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-1">
+                              Response
+                              {call.wingspanRequestId ? (
+                                <span className="ml-1 font-mono normal-case">
+                                  ({call.wingspanRequestId})
+                                </span>
+                              ) : null}
+                            </div>
+                            <pre className="bg-muted rounded-md p-3 text-xs overflow-auto">
+                              {call.responseBody === null || call.responseBody === undefined
+                                ? "—"
+                                : JSON.stringify(call.responseBody, null, 2)}
+                            </pre>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         </div>

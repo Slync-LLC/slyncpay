@@ -7,6 +7,7 @@ import { ZodError } from "zod";
 import bcrypt from "bcrypt";
 import { env } from "./lib/env.js";
 import { ApiError } from "./lib/errors.js";
+import { requestContextMiddleware } from "./middleware/request-context.js";
 import { authRoutes } from "./routes/auth.js";
 import { tenantRoutes } from "./routes/tenant.js";
 import { entityRoutes } from "./routes/entities.js";
@@ -34,6 +35,9 @@ const app = new Hono();
 // ─── Global middleware ────────────────────────────────────────────────────────
 
 app.use("*", logger());
+// Establishes the per-request correlation context (must run before auth + routes)
+// so Wingspan calls and audit events share a correlation id.
+app.use("*", requestContextMiddleware);
 app.use(
   "*",
   cors({

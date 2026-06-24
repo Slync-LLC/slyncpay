@@ -14,11 +14,13 @@
  * entities.
  */
 
-import { WingspanApiError } from "./client.js";
+import { WingspanApiError, type WingspanCallLog } from "./client.js";
 
 export interface WingspanV3ClientConfig {
   apiToken: string;
   baseUrl?: string;
+  /** Optional sink invoked once per request (success or failure). Never throws. */
+  onCall?: ((entry: WingspanCallLog) => void) | undefined;
 }
 
 export interface V3Address {
@@ -93,16 +95,21 @@ export class WingspanV3Client {
   private readonly baseUrl: string;
   private readonly apiToken: string;
   private readonly accountId: string | null;
+  private readonly onCall?: ((entry: WingspanCallLog) => void) | undefined;
 
   constructor(config: WingspanV3ClientConfig, accountId: string | null = null) {
     this.apiToken = config.apiToken;
     this.baseUrl = config.baseUrl ?? "https://api.wingspan.app";
     this.accountId = accountId;
+    this.onCall = config.onCall;
   }
 
   /** Scope subsequent calls to a specific child account (an EIN). */
   withAccount(accountId: string): WingspanV3Client {
-    return new WingspanV3Client({ apiToken: this.apiToken, baseUrl: this.baseUrl }, accountId);
+    return new WingspanV3Client(
+      { apiToken: this.apiToken, baseUrl: this.baseUrl, onCall: this.onCall },
+      accountId,
+    );
   }
 
   private headers(): Record<string, string> {
@@ -120,18 +127,57 @@ export class WingspanV3Client {
     body?: unknown,
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
-      method,
-      headers: this.headers(),
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-    });
-    const text = await res.text();
+    const requestHeaders = this.headers();
+    const startedAt = Date.now();
+
+    let res: Response | undefined;
+    let text = "";
     let json: unknown;
+    let networkError: Error | undefined;
     try {
-      json = JSON.parse(text);
-    } catch {
-      json = { message: text };
+      res = await fetch(url, {
+        method,
+        headers: requestHeaders,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      });
+      text = await res.text();
+      try {
+        json = JSON.parse(text);
+      } catch {
+        json = { message: text };
+      }
+    } catch (err) {
+      networkError = err as Error;
     }
+
+    const requestId = res?.headers.get("x-request-id") ?? null;
+
+    if (this.onCall) {
+      try {
+        this.onCall({
+          apiVersion: "v3",
+          method,
+          url,
+          path,
+          requestHeaders,
+          requestBody: body,
+          responseBody: networkError ? undefined : json,
+          responseStatus: res?.status ?? null,
+          requestId,
+          durationMs: Date.now() - startedAt,
+          error: networkError
+            ? networkError.message
+            : res && !res.ok
+              ? `HTTP ${res.status}`
+              : undefined,
+        });
+      } catch {
+        // Logging must never break the call.
+      }
+    }
+
+    if (networkError || !res) throw networkError ?? new Error("Wingspan request failed");
+
     if (!res.ok) {
       let msg: string;
       if (typeof json === "object" && json !== null) {
@@ -142,7 +188,7 @@ export class WingspanV3Client {
       } else {
         msg = `HTTP ${res.status} ${text.slice(0, 200)}`;
       }
-      throw new WingspanApiError(res.status, msg, res.headers.get("x-request-id") ?? undefined);
+      throw new WingspanApiError(res.status, msg, requestId ?? undefined);
     }
     return json as T;
   }

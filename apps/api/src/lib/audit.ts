@@ -1,4 +1,5 @@
 import { db, auditLog } from "@slyncpay/db";
+import { getCorrelationId } from "./request-context.js";
 
 export type AuditActorType = "api_key" | "system" | "admin";
 
@@ -28,6 +29,7 @@ export async function logAudit(event: AuditEvent): Promise<void> {
       resourceId: event.resourceId ?? null,
       metadata: event.metadata ?? {},
       ipAddress: event.ipAddress ?? null,
+      correlationId: getCorrelationId(),
     });
   } catch (err) {
     console.error("[audit] failed to write event:", event.action, (err as Error).message);

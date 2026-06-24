@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import { eq, and, desc, lt, lte, gte, sql, like, isNull } from "@slyncpay/db";
-import { db, tenants, provisioningJobs, auditLog, apiKeys } from "@slyncpay/db";
+import { db, tenants, provisioningJobs, auditLog, apiKeys, wingspanApiLog } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ApiError } from "../lib/errors.js";
 import { getWingspanClient } from "../lib/wingspan.js";
@@ -255,12 +255,60 @@ tenantRoutes.get(
       resourceId: r.resourceId,
       metadata: r.metadata,
       ipAddress: r.ipAddress,
+      correlationId: r.correlationId,
     }));
 
     const last = sliced[sliced.length - 1];
     const nextCursor = hasMore && last ? `${(last.createdAt as Date).toISOString()}|${last.id}` : null;
 
     return c.json({ events, nextCursor });
+  },
+);
+
+// ─── Wingspan calls behind an activity event ───────────────────────────────────
+//
+// Returns the (redacted) Wingspan API requests + responses captured under a
+// correlation id — i.e. the calls a given activity-log event triggered. Scoped
+// to the caller's tenant so one tenant can't read another's traffic.
+
+const wingspanCallsQuerySchema = z.object({
+  correlationId: z.string().min(1).max(100),
+});
+
+tenantRoutes.get(
+  "/activity-log/wingspan-calls",
+  zValidator("query", wingspanCallsQuerySchema),
+  async (c) => {
+    const { tenantId } = c.var.auth;
+    const { correlationId } = c.req.valid("query");
+
+    const rows = await db
+      .select()
+      .from(wingspanApiLog)
+      .where(
+        and(
+          eq(wingspanApiLog.tenantId, tenantId),
+          eq(wingspanApiLog.correlationId, correlationId),
+        ),
+      )
+      .orderBy(wingspanApiLog.createdAt);
+
+    const calls = rows.map((r) => ({
+      id: r.id,
+      timestamp: r.createdAt,
+      apiVersion: r.apiVersion,
+      method: r.method,
+      url: r.url,
+      requestHeaders: r.requestHeaders,
+      requestBody: r.requestBody,
+      responseStatus: r.responseStatus,
+      responseBody: r.responseBody,
+      wingspanRequestId: r.wingspanRequestId,
+      durationMs: r.durationMs,
+      error: r.error,
+    }));
+
+    return c.json({ calls });
   },
 );
 

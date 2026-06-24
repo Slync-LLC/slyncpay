@@ -1,5 +1,6 @@
 import { WingspanClient, WingspanV3Client } from "@slyncpay/wingspan";
 import { env, hasSandboxConfig, hasV3Config } from "./env.js";
+import { wingspanCallSink } from "./wingspan-log.js";
 
 export type WingspanEnvironment = "live" | "test";
 
@@ -28,6 +29,7 @@ export function getWingspanClient(environment: WingspanEnvironment = "live"): Wi
     clients.test = new WingspanClient({
       apiToken: env.WINGSPAN_SANDBOX_API_TOKEN,
       baseUrl: env.WINGSPAN_SANDBOX_BASE_URL,
+      onCall: wingspanCallSink,
     });
     return clients.test;
   }
@@ -35,6 +37,7 @@ export function getWingspanClient(environment: WingspanEnvironment = "live"): Wi
   clients.live = new WingspanClient({
     apiToken: env.WINGSPAN_LIVE_API_TOKEN,
     baseUrl: env.WINGSPAN_LIVE_BASE_URL,
+    onCall: wingspanCallSink,
   });
   return clients.live;
 }
@@ -73,6 +76,7 @@ export function getWingspanV3Client(environment: WingspanEnvironment = "live"): 
     v3Clients.test = new WingspanV3Client({
       apiToken: env.WINGSPAN_SANDBOX_V3_API_TOKEN,
       baseUrl: env.WINGSPAN_SANDBOX_V3_BASE_URL,
+      onCall: wingspanCallSink,
     });
     return v3Clients.test;
   }
@@ -80,6 +84,7 @@ export function getWingspanV3Client(environment: WingspanEnvironment = "live"): 
   v3Clients.live = new WingspanV3Client({
     apiToken: env.WINGSPAN_LIVE_V3_API_TOKEN,
     baseUrl: env.WINGSPAN_LIVE_V3_BASE_URL,
+    onCall: wingspanCallSink,
   });
   return v3Clients.live;
 }

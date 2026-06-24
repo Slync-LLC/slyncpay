@@ -3,6 +3,7 @@ import { eq } from "@slyncpay/db";
 import { db, tenants } from "@slyncpay/db";
 import { getRedis } from "../lib/redis.js";
 import { getWingspanClient, wingspanRootUserId, hasSandboxConfig } from "../lib/wingspan.js";
+import { enterRequestContext } from "../lib/request-context.js";
 import { TENANT_SANDBOX_SETUP_QUEUE } from "./queues.js";
 
 export interface TenantSandboxSetupJobData {
@@ -19,6 +20,7 @@ export function startTenantSandboxSetupWorker(): Worker {
     TENANT_SANDBOX_SETUP_QUEUE,
     async (job) => {
       const { tenantId } = job.data;
+      enterRequestContext({ tenantId, environment: "test" });
       if (!hasSandboxConfig()) {
         console.log(`[TenantSandboxSetup] Skipping ${tenantId} — sandbox not configured`);
         return;
