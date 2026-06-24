@@ -4,6 +4,8 @@ services:
     runtime: node
     region: oregon
     plan: starter
+    branch: main
+    autoDeploy: true
     buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/wingspan build && pnpm --filter @slyncpay/db build && pnpm --filter @slyncpay/api build
     startCommand: node apps/api/dist/index.js
     envVars:
@@ -38,6 +40,8 @@ services:
     runtime: node
     region: oregon
     plan: starter
+    branch: main
+    autoDeploy: true
     buildCommand: npm install -g pnpm@9.0.0 && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @slyncpay/types build && pnpm --filter @slyncpay/web build && cp -r apps/web/.next/static apps/web/.next/standalone/apps/web/.next/static && cp -r apps/web/public apps/web/.next/standalone/apps/web/public
     startCommand: node apps/web/.next/standalone/apps/web/server.js
     envVars:
