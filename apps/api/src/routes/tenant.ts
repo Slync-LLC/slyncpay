@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
-import { eq, and, desc, lt, lte, gte, sql, like, isNull } from "@slyncpay/db";
+import { eq, and, desc, lt, lte, gte, like, isNull, inArray } from "@slyncpay/db";
 import { db, tenants, provisioningJobs, auditLog, apiKeys, wingspanApiLog } from "@slyncpay/db";
 import { authMiddleware } from "../middleware/auth.js";
 import { NotFoundError, ApiError } from "../lib/errors.js";
@@ -237,7 +237,7 @@ tenantRoutes.get(
       ? await db
           .select({ id: apiKeys.id, name: apiKeys.name, keyHint: apiKeys.keyHint })
           .from(apiKeys)
-          .where(sql`${apiKeys.id} = ANY(${apiKeyIds})`)
+          .where(inArray(apiKeys.id, apiKeyIds))
       : [];
     const keyNamesById: Record<string, { name: string | null; keyHint: string | null }> = {};
     for (const k of keyMetaRows) {
