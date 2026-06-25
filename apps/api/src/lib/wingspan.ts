@@ -52,6 +52,19 @@ export function wingspanUiBaseUrl(environment: WingspanEnvironment): string {
   return environment === "test" ? "https://staging-my.wingspan.app" : "https://my.wingspan.app";
 }
 
+/** Full onboarding-wizard deep-link (fallback when tax isn't yet verified). */
+export function wingspanOnboardingUrl(environment: WingspanEnvironment, token: string): string {
+  return `${wingspanUiBaseUrl(environment)}/member/onboarding?requestingToken=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Payout-method chooser deep-link. Only lands here (instead of the wizard) once
+ * the contractor's Tax verification is complete — see runLowFrictionOnboarding.
+ */
+export function wingspanPayoutChooserUrl(environment: WingspanEnvironment, token: string): string {
+  return `${wingspanUiBaseUrl(environment)}/member/settings/payment-methods/add-payout-method/type?requestingToken=${encodeURIComponent(token)}`;
+}
+
 export { hasSandboxConfig, hasV3Config };
 
 /**
@@ -94,6 +107,42 @@ export function wingspanV3ParentAccountId(environment: WingspanEnvironment): str
   return environment === "test"
     ? env.WINGSPAN_SANDBOX_V3_PARENT_ACCOUNT_ID
     : env.WINGSPAN_LIVE_V3_PARENT_ACCOUNT_ID;
+}
+
+// ─── V3 platform onboarding (PREVIEW, flag-gated) ────────────────────────────
+
+/** V3 organization id for the platform onboarding endpoints. */
+export function wingspanV3OrgId(environment: WingspanEnvironment): string {
+  return environment === "test" ? env.WINGSPAN_SANDBOX_V3_ORG_ID : env.WINGSPAN_LIVE_V3_ORG_ID;
+}
+
+/**
+ * A V3 client authenticated with the PLATFORM token (for `/v3/platform/*`).
+ * Not memoized — the platform flow is preview-only and low-volume.
+ */
+export function getWingspanV3PlatformClient(environment: WingspanEnvironment): WingspanV3Client {
+  return new WingspanV3Client({
+    apiToken:
+      environment === "test"
+        ? env.WINGSPAN_SANDBOX_V3_PLATFORM_TOKEN
+        : env.WINGSPAN_LIVE_V3_PLATFORM_TOKEN,
+    baseUrl: environment === "test" ? env.WINGSPAN_SANDBOX_V3_BASE_URL : env.WINGSPAN_LIVE_V3_BASE_URL,
+    onCall: wingspanCallSink,
+  });
+}
+
+/**
+ * True only when the v3 onboarding flag is on AND the platform token, org id,
+ * and parent account id are configured. The flag is off in production until v3
+ * is GA (~mid-July).
+ */
+export function hasV3OnboardingConfig(environment: WingspanEnvironment): boolean {
+  if (!env.WINGSPAN_V3_ONBOARDING) return false;
+  const token =
+    environment === "test"
+      ? env.WINGSPAN_SANDBOX_V3_PLATFORM_TOKEN
+      : env.WINGSPAN_LIVE_V3_PLATFORM_TOKEN;
+  return Boolean(token && wingspanV3OrgId(environment) && wingspanV3ParentAccountId(environment));
 }
 
 /** Returns the entity's V3 child account ID for the requested env, or null. */

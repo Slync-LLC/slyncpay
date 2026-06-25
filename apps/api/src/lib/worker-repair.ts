@@ -217,14 +217,14 @@ export async function syncWorkerProfileToWingspan(
  * firstName/middleName/lastName contain numbers. Collapses whitespace and
  * returns undefined when nothing usable remains.
  */
-function sanitizeName(s: string | null | undefined): string | undefined {
+export function sanitizeName(s: string | null | undefined): string | undefined {
   if (!s) return undefined;
   const cleaned = s.replace(/[0-9]/g, "").replace(/\s+/g, " ").trim();
   return cleaned || undefined;
 }
 
 /** Map our stored address fields onto Wingspan's address shape (drops empties). */
-function buildAddress(src: {
+export function buildAddress(src: {
   addressLine1?: string;
   addressLine2?: string;
   city?: string;

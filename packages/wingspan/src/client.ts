@@ -78,6 +78,40 @@ export interface WingspanCompany {
 }
 
 /**
+ * Identity + tax payload for the v2 low-friction onboarding flow
+ * (`PATCH /v2/onboarding/customer/Entity`). NOTE the v2 field names differ from
+ * the User/Member records: `region` (not state), `individualTaxId` (the SSN),
+ * `dateOfBirth` (not dob).
+ */
+export interface WingspanCustomerData {
+  firstName?: string;
+  lastName?: string;
+  occupation?: string;
+  dateOfBirth?: string;
+  country?: string;
+  individualTaxId?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  email?: string;
+  phoneNumber?: string;
+}
+
+/** v2 verification lanes. */
+export type WingspanVerificationLane = "Tax" | "Banking";
+
+/**
+ * Response of `GET /v2/onboarding/verifications`. Shape is read defensively —
+ * we only care that the Tax lane reports a status (e.g. "Verified"). Indexed
+ * access is permissive because the exact envelope may vary by environment.
+ */
+export interface WingspanVerifications {
+  [k: string]: unknown;
+}
+
+/**
  * Typed wrapper around the Wingspan API.
  *
  * Authentication pattern (Option A from the integration guide):
@@ -282,6 +316,49 @@ export class WingspanClient {
     return this.request("PATCH", `/users/user/member/${userId}`, {
       memberId: userId,
       ...body,
+    });
+  }
+
+  // ─── v2 low-friction onboarding ──────────────────────────────────────────────
+  // All of these act AS the contractor — call via `.withChild(payeeId)`. They
+  // let us pre-provide identity + tax data, verify it server-side, and record
+  // W-9 consent so the contractor deep-links straight to the payout chooser
+  // instead of the onboarding wizard.
+
+  /** Create the customer entity the verification system reads. Do this first. */
+  createOnboardingCustomer(body: { type: "Individual" | "Business"; country: string }): Promise<unknown> {
+    return this.request("POST", "/v2/onboarding/customer", body);
+  }
+
+  /** Submit identity + tax data (incl. SSN as `individualTaxId`). */
+  updateOnboardingCustomer(customerData: WingspanCustomerData): Promise<unknown> {
+    return this.request("PATCH", "/v2/onboarding/customer/Entity", { customerData });
+  }
+
+  /** Kick off a verification lane (Tax for TIN/W-9; Banking only for Wallet). */
+  runOnboardingVerification(lane: WingspanVerificationLane): Promise<unknown> {
+    return this.request("POST", `/v2/onboarding/verifications/${lane}`);
+  }
+
+  /** Read current verification statuses (Tax must be Verified for the payout deep-link). */
+  getOnboardingVerifications(): Promise<WingspanVerifications> {
+    return this.request("GET", "/v2/onboarding/verifications");
+  }
+
+  /** Confirm nothing is missing for a lane (empty requiredFields == ready). */
+  getOnboardingMissingData(lane: WingspanVerificationLane): Promise<unknown> {
+    return this.request("GET", `/v2/onboarding/missing-data/${lane}`);
+  }
+
+  /**
+   * Record the contractor's consent to share their W-9 with the paying entity,
+   * so it isn't an outstanding to-do. Acts as the contractor (impersonation),
+   * targets the payer that pays them. `payerId` comes from the createPayee
+   * response (the bucket payer, or an EIN entity payer).
+   */
+  recordW9Consent(payerId: string): Promise<unknown> {
+    return this.request("PATCH", `/payments/payer/${payerId}`, {
+      payeeOwnedData: { shareTaxDocument: "Allow" },
     });
   }
 

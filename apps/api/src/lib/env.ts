@@ -36,6 +36,16 @@ const wingspanSandboxV3BaseUrl =
 const wingspanSandboxV3ParentAccountId =
   process.env["WINGSPAN_SANDBOX_V3_PARENT_ACCOUNT_ID"] ?? "";
 
+// V3 platform onboarding (PREVIEW) — separate platform token + org id used by the
+// /v3/platform/* endpoints. Fall back to the V3 api token if a distinct platform
+// token isn't provisioned yet. Gated by WINGSPAN_V3_ONBOARDING (default off).
+const wingspanLiveV3PlatformToken =
+  process.env["WINGSPAN_LIVE_V3_PLATFORM_TOKEN"] ?? wingspanLiveV3ApiToken;
+const wingspanSandboxV3PlatformToken =
+  process.env["WINGSPAN_SANDBOX_V3_PLATFORM_TOKEN"] ?? wingspanSandboxV3ApiToken;
+const wingspanLiveV3OrgId = process.env["WINGSPAN_LIVE_V3_ORG_ID"] ?? "";
+const wingspanSandboxV3OrgId = process.env["WINGSPAN_SANDBOX_V3_ORG_ID"] ?? "";
+
 export const env = {
   DATABASE_URL: required("DATABASE_URL"),
   REDIS_URL: process.env["REDIS_URL"] ?? "redis://localhost:6379",
@@ -60,6 +70,13 @@ export const env = {
   WINGSPAN_SANDBOX_V3_API_TOKEN: wingspanSandboxV3ApiToken,
   WINGSPAN_SANDBOX_V3_BASE_URL: wingspanSandboxV3BaseUrl,
   WINGSPAN_SANDBOX_V3_PARENT_ACCOUNT_ID: wingspanSandboxV3ParentAccountId,
+
+  // V3 platform onboarding (PREVIEW, flag-gated)
+  WINGSPAN_V3_ONBOARDING: (process.env["WINGSPAN_V3_ONBOARDING"] ?? "").toLowerCase() === "true",
+  WINGSPAN_LIVE_V3_PLATFORM_TOKEN: wingspanLiveV3PlatformToken,
+  WINGSPAN_SANDBOX_V3_PLATFORM_TOKEN: wingspanSandboxV3PlatformToken,
+  WINGSPAN_LIVE_V3_ORG_ID: wingspanLiveV3OrgId,
+  WINGSPAN_SANDBOX_V3_ORG_ID: wingspanSandboxV3OrgId,
 
   PORT: parseInt(process.env["PORT"] ?? "3001", 10),
   API_SECRET: process.env["API_SECRET"] ?? "dev-secret",

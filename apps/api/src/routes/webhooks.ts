@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq } from "@slyncpay/db";
+import { eq, or } from "@slyncpay/db";
 import { createHmac, timingSafeEqual } from "crypto";
 import {
   db,
@@ -249,8 +249,39 @@ async function dispatchEvent(event: WingspanWebhookEvent): Promise<void> {
       // Year-end forms surface in the "Tax Forms" tab via a separate fetch;
       // nothing to persist locally right now.
       return;
-    default:
-      // Record as ignored — visible in webhook_inbound_events for debugging.
+    default: {
+      // v2 low-friction onboarding signals. Event names aren't finalized, so
+      // match defensively; the onboarding-link re-check is the source of truth.
+      const lower = type.toLowerCase();
+      const payeeId = (data["payeeId"] ?? data["userId"]) as string | undefined;
+      if (!payeeId) return;
+      const byPayee = or(
+        eq(workers.wingspanUserId, payeeId),
+        eq(workers.wingspanPayeeBucketPayeeId, payeeId),
+      );
+
+      // Tax verification completed → record status + advance to payout_pending.
+      if (lower.includes("verification") || lower.includes("compliance")) {
+        const lane = String(data["lane"] ?? data["type"] ?? data["level"] ?? "").toLowerCase();
+        if (!lane || lane.includes("tax")) {
+          const status = String(data["status"] ?? "Verified");
+          await db
+            .update(workers)
+            .set({ taxVerificationStatus: status, onboardingStatus: "payout_pending", updatedAt: new Date() })
+            .where(byPayee);
+        }
+        return;
+      }
+      // Payout method added → contractor is active and payable.
+      if (lower.includes("payout") || lower.includes("paymentmethod") || lower.includes("payment_method")) {
+        await db
+          .update(workers)
+          .set({ onboardingStatus: "active", updatedAt: new Date() })
+          .where(byPayee);
+        return;
+      }
+      // Otherwise recorded as ignored — visible in webhook_inbound_events.
       return;
+    }
   }
 }

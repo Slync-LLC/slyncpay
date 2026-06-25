@@ -28,6 +28,14 @@ services:
         sync: false
       - key: WINGSPAN_BASE_URL
         value: https://api.wingspan.app
+      # v3 platform onboarding (PREVIEW) — keep OFF until v3 is GA (~mid-July).
+      # Other WINGSPAN_*_V3_* secrets are set directly in the Render dashboard.
+      - key: WINGSPAN_V3_ONBOARDING
+        value: "false"
+      - key: WINGSPAN_SANDBOX_V3_PLATFORM_TOKEN
+        sync: false
+      - key: WINGSPAN_SANDBOX_V3_ORG_ID
+        sync: false
       - key: EIN_ENCRYPTION_KEY
         generateValue: true
       - key: JWT_SECRET

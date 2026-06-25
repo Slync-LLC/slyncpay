@@ -112,12 +112,13 @@ export class WingspanV3Client {
     );
   }
 
-  private headers(): Record<string, string> {
+  private headers(idempotencyKey?: string): Record<string, string> {
     const h: Record<string, string> = {
       Authorization: `Bearer ${this.apiToken}`,
       "Content-Type": "application/json",
     };
     if (this.accountId) h["X-Wingspan-Account"] = this.accountId;
+    if (idempotencyKey) h["Idempotency-Key"] = idempotencyKey;
     return h;
   }
 
@@ -125,9 +126,10 @@ export class WingspanV3Client {
     method: "GET" | "POST" | "PATCH" | "DELETE",
     path: string,
     body?: unknown,
+    opts?: { idempotencyKey?: string },
   ): Promise<T> {
     const url = `${this.baseUrl}${path}`;
-    const requestHeaders = this.headers();
+    const requestHeaders = this.headers(opts?.idempotencyKey);
     const startedAt = Date.now();
 
     let res: Response | undefined;
@@ -310,5 +312,75 @@ export class WingspanV3Client {
 
   approvePayroll(payrollId: string): Promise<V3PayrollResponse> {
     return this.request("POST", `/v3/payments/payrolls/${payrollId}/approve`);
+  }
+
+  // ─── v3 platform onboarding (PREVIEW) ────────────────────────────────────────
+  // The server-side onboarding model: Account → Payee → platform-asserted
+  // association → principal Stakeholder → Compliance Entity → verify. These
+  // endpoints land in Wingspan staging ~next week; field shapes are still
+  // directional, so payloads are typed loosely on purpose. Not used on any
+  // production path — gated behind WINGSPAN_V3_ONBOARDING + test environment.
+
+  /** Create the regulated payee Account the platform operates (no account header). */
+  createAccount(
+    params: {
+      externalId: string;
+      organizationId: string;
+      parentAccountId: string;
+      profile?: { displayName?: string };
+    },
+    idempotencyKey: string,
+  ): Promise<{ id: string; [k: string]: unknown }> {
+    return this.request("POST", "/v3/platform/accounts", params, { idempotencyKey });
+  }
+
+  /** Create the payer-side Payee record (scope to the payer account via withAccount). */
+  createPayeeV3(
+    params: { email: string; externalId: string; profile?: { displayName?: string } },
+    idempotencyKey: string,
+  ): Promise<{ id: string; payeeAccountId: string | null; [k: string]: unknown }> {
+    return this.request("POST", "/v3/payments/payees", params, { idempotencyKey });
+  }
+
+  /** Bind a Payee to an Account with a platform-asserted authority (no payee accept). */
+  associatePayeeAccount(
+    payeeId: string,
+    body: {
+      payeeAccountId: string;
+      authority: {
+        type: "PlatformAsserted";
+        basis: string;
+        externalAgreementId: string;
+        acceptedAt: string;
+        consentVersion: string;
+      };
+    },
+  ): Promise<{ id: string; status: string; linkMethod: string; [k: string]: unknown }> {
+    return this.request("POST", `/v3/payments/payees/${payeeId}/associate-account`, body);
+  }
+
+  /** Add a (no-login) principal/owner Stakeholder to an Account. */
+  addStakeholder(
+    accountId: string,
+    body: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<{ id: string; [k: string]: unknown }> {
+    return this.request("POST", `/v3/platform/accounts/${accountId}/stakeholders`, body, { idempotencyKey });
+  }
+
+  /** Create an Individual or Business Compliance Entity (holds identity + tax data). */
+  createComplianceEntity(
+    body: Record<string, unknown>,
+    idempotencyKey: string,
+  ): Promise<{ id: string; [k: string]: unknown }> {
+    return this.request("POST", "/v3/platform/compliance-entities", body, { idempotencyKey });
+  }
+
+  /** Run a verification lane (e.g. Tax) on a Compliance Entity. */
+  verifyComplianceEntity(
+    complianceEntityId: string,
+    body: { level: "Tax" | "Identity"; reusePolicy?: "ResolveExisting" | "Force" },
+  ): Promise<{ verifications?: Record<string, unknown>; [k: string]: unknown }> {
+    return this.request("POST", `/v3/platform/compliance-entities/${complianceEntityId}/verify`, body);
   }
 }

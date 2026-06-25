@@ -222,6 +222,12 @@ export const workers = pgTable(
     // AES-256-GCM encrypted EIN for business contractors. Decrypted only to seed
     // the Wingspan company block (member.profile.company.taxId). Never echoed back.
     einEncrypted: text("ein_encrypted"),
+    // v2 low-friction onboarding state. taxVerificationStatus mirrors Wingspan's
+    // Tax lane (e.g. "Verified"); wingspanPayerId is the payee-bucket payer used
+    // to re-record W-9 consent on link re-fetch; w9ConsentAt stamps consent.
+    taxVerificationStatus: text("tax_verification_status"),
+    wingspanPayerId: text("wingspan_payer_id"),
+    w9ConsentAt: timestamp("w9_consent_at", { withTimezone: true }),
     metadata: jsonb("metadata").notNull().default({}),
 
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

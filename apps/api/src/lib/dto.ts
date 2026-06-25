@@ -23,6 +23,7 @@ export interface WorkerDTO {
   firstName: string | null;
   lastName: string | null;
   onboardingStatus: string;
+  taxVerificationStatus?: string | null;
   metadata?: unknown;
   w9SeededData?: unknown;
   ssnLast4?: string | null;
@@ -90,6 +91,9 @@ export function toWorkerDTO(r: AnyRow): WorkerDTO {
     firstName: (r["firstName"] as string | null) ?? null,
     lastName: (r["lastName"] as string | null) ?? null,
     onboardingStatus: r["onboardingStatus"] as string,
+    ...(r["taxVerificationStatus"] !== undefined
+      ? { taxVerificationStatus: (r["taxVerificationStatus"] as string | null) ?? null }
+      : {}),
     ...(r["metadata"] !== undefined ? { metadata: r["metadata"] } : {}),
     ...(r["w9SeededData"] !== undefined ? { w9SeededData: r["w9SeededData"] } : {}),
     ...(r["ssnLast4"] !== undefined ? { ssnLast4: (r["ssnLast4"] as string | null) ?? null } : {}),

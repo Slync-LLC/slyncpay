@@ -10,7 +10,8 @@ import { NotFoundError, ConflictError, PlanLimitError, ValidationError } from ".
 import {
   getWingspanClient,
   getWingspanV3Client,
-  wingspanUiBaseUrl,
+  wingspanOnboardingUrl,
+  wingspanPayoutChooserUrl,
   hasSandboxConfig,
   hasV3Config,
   entityChildUserId,
@@ -21,6 +22,7 @@ import {
   syncWorkerToWingspan,
   syncWorkerProfileToWingspan,
 } from "../lib/worker-repair.js";
+import { runLowFrictionOnboarding } from "../lib/onboarding.js";
 import { WingspanApiError } from "@slyncpay/wingspan";
 import { PLAN_CONFIG } from "@slyncpay/types";
 import type { TenantPlan } from "@slyncpay/types";
@@ -240,7 +242,9 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   // Push profile + member fields so the onboarding wizard pre-fills. The
   // payerOwnedData.payeeW9Data sent above covers TIN verification; these
   // PATCH calls cover the wizard UI (per Wingspan's recipe). Impersonation only
-  // works inside our org chain, so skip when detection said otherwise.
+  // works inside our org chain, so skip when detection said otherwise. We keep
+  // this for the fallback wizard (e.g. when tax verification needs review).
+  const isBusiness = body.contractorType === "business";
   if (inOrgChain) {
     await syncWorkerProfileToWingspan(
       { firstName: body.firstName, lastName: body.lastName, w9SeededData, ein: einDigits ?? null },
@@ -248,6 +252,29 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
       payeeId,
       body.externalId,
     );
+  }
+
+  // v2 low-friction onboarding (individuals): pre-verify identity/tax + record
+  // W-9 consent so we can deep-link straight to the payout chooser. Business
+  // contractors stay on the wizard flow until v3's business model lands.
+  let taxVerified = false;
+  let taxStatus: string | null = null;
+  if (inOrgChain && !isBusiness) {
+    const result = await runLowFrictionOnboarding({
+      seed: {
+        firstName: body.firstName,
+        lastName: body.lastName,
+        email: body.email,
+        w9SeededData,
+        ssn: ssnDigits ?? null,
+      },
+      environment,
+      payeeId,
+      payerId: wingspanPayee.payerId,
+      workerIdForLog: body.externalId,
+    });
+    taxVerified = result.taxVerified;
+    taxStatus = result.taxStatus;
   }
 
   // Save worker with Wingspan IDs
@@ -262,6 +289,9 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
       onboardingStatus: "invited",
       wingspanPayeeBucketPayeeId: wingspanPayee.payeeId,
       wingspanUserId: payeeId,
+      wingspanPayerId: wingspanPayee.payerId,
+      taxVerificationStatus: taxStatus,
+      w9ConsentAt: inOrgChain && !isBusiness ? new Date() : null,
       environment,
       metadata: body.metadata ?? {},
       w9SeededData,
@@ -274,14 +304,16 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
 
   // Get a session token for an immediate embedded-onboarding URL. The URL is
   // iframe-safe and the tenant can drop it directly into <iframe src=...>.
-  // Falls back to null if Wingspan rejects the session call — caller can
-  // refetch via GET /v1/workers/:id/onboarding-link.
+  // Once tax is verified we deep-link straight to the payout chooser; otherwise
+  // we fall back to the full onboarding wizard. Falls back to null if Wingspan
+  // rejects the session call — caller can refetch via GET .../onboarding-link.
   let embeddedOnboardingUrl: string | null = null;
   let embeddedOnboardingExpiresAt: string | null = null;
   try {
     const session = await getWingspanClient(environment).getSessionToken(payeeId);
-    const baseUi = wingspanUiBaseUrl(environment);
-    embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
+    embeddedOnboardingUrl = taxVerified
+      ? wingspanPayoutChooserUrl(environment, session.token)
+      : wingspanOnboardingUrl(environment, session.token);
     embeddedOnboardingExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   } catch {
     // Non-fatal
@@ -527,6 +559,8 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
   // Both calls are required: syncWorkerToWingspan writes payerOwnedData
   // (TIN verification); syncWorkerProfileToWingspan writes the User +
   // User.Member records (wizard UI pre-fill).
+  const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
+  let taxVerified = worker.taxVerificationStatus?.toLowerCase() === "verified";
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
     await syncWorkerProfileToWingspan(
@@ -535,13 +569,41 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
       worker.wingspanPayeeBucketPayeeId,
       worker.id,
     );
+
+    // Re-run v2 low-friction onboarding (individuals) — idempotent — and
+    // re-check tax status. This is the reliable path for async prod
+    // verification: once Tax flips to Verified, the deep-link switches to the
+    // payout chooser. payerId comes from the stored bucket payer.
+    if (!isBusiness && worker.wingspanPayerId) {
+      const result = await runLowFrictionOnboarding({
+        seed: {
+          firstName: worker.firstName,
+          lastName: worker.lastName,
+          email: worker.email,
+          w9SeededData: worker.w9SeededData,
+          ssnEncrypted: worker.ssnEncrypted,
+        },
+        environment,
+        payeeId: worker.wingspanPayeeBucketPayeeId,
+        payerId: worker.wingspanPayerId,
+        workerIdForLog: worker.id,
+      });
+      taxVerified = result.taxVerified;
+      if (result.taxStatus && result.taxStatus !== worker.taxVerificationStatus) {
+        await db
+          .update(workers)
+          .set({ taxVerificationStatus: result.taxStatus, updatedAt: new Date() })
+          .where(eq(workers.id, worker.id));
+      }
+    }
   }
 
   const session = await getWingspanClient(environment).getSessionToken(userId);
-  const baseUi = wingspanUiBaseUrl(environment);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
-  const embeddedOnboardingUrl = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
+  const embeddedOnboardingUrl = taxVerified
+    ? wingspanPayoutChooserUrl(environment, session.token)
+    : wingspanOnboardingUrl(environment, session.token);
 
   return c.json({
     embeddedOnboardingUrl,

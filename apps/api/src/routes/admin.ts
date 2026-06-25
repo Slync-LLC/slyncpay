@@ -30,7 +30,15 @@ import { adminAuthMiddleware } from "../middleware/admin-auth.js";
 import { ApiError } from "../lib/errors.js";
 import { provisioningJobs } from "@slyncpay/db";
 import { getTenantSetupQueue, getTenantSandboxSetupQueue } from "../workers/queues.js";
-import { hasSandboxConfig, getWingspanClient, wingspanUiBaseUrl } from "../lib/wingspan.js";
+import {
+  hasSandboxConfig,
+  getWingspanClient,
+  wingspanOnboardingUrl,
+  wingspanPayoutChooserUrl,
+  hasV3OnboardingConfig,
+} from "../lib/wingspan.js";
+import { runLowFrictionOnboarding } from "../lib/onboarding.js";
+import { runV3OnboardingPreviewIndividual } from "../lib/onboarding-v3.js";
 import {
   repairWorkerWingspanUserId,
   syncWorkerToWingspan,
@@ -621,6 +629,8 @@ adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
     throw new ApiError(422, "not_ready", "Worker does not have an onboarding account yet");
   }
 
+  const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
+  let taxVerified = worker.taxVerificationStatus?.toLowerCase() === "verified";
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId);
     await syncWorkerProfileToWingspan(
@@ -629,15 +639,68 @@ adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
       worker.wingspanPayeeBucketPayeeId,
       worker.id,
     );
+    if (!isBusiness && worker.wingspanPayerId) {
+      const result = await runLowFrictionOnboarding({
+        seed: {
+          firstName: worker.firstName,
+          lastName: worker.lastName,
+          email: worker.email,
+          w9SeededData: worker.w9SeededData,
+          ssnEncrypted: worker.ssnEncrypted,
+        },
+        environment: env,
+        payeeId: worker.wingspanPayeeBucketPayeeId,
+        payerId: worker.wingspanPayerId,
+        workerIdForLog: worker.id,
+      });
+      taxVerified = result.taxVerified;
+    }
   }
 
   const session = await getWingspanClient(env).getSessionToken(userId);
-  const baseUi = wingspanUiBaseUrl(env);
 
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const url = `${baseUi}/member/onboarding?requestingToken=${encodeURIComponent(session.token)}`;
+  const url = taxVerified
+    ? wingspanPayoutChooserUrl(env, session.token)
+    : wingspanOnboardingUrl(env, session.token);
 
   return c.json({ url, expiresAt, environment: env, onboardingStatus: worker.onboardingStatus });
+});
+
+// PREVIEW — exercise the v3 server-side onboarding (Flow 2, individual) against
+// staging. Hard-gated: test environment only + WINGSPAN_V3_ONBOARDING flag +
+// configured platform creds. Never touches the live path.
+adminRoutes.post("/workers/:id/v3-onboarding-preview", async (c) => {
+  const { id } = c.req.param();
+  const [worker] = await db.select().from(workers).where(eq(workers.id, id)).limit(1);
+  if (!worker) throw new ApiError(404, "not_found", "Worker not found");
+
+  const env: "live" | "test" = worker.environment === "test" ? "test" : "live";
+  if (env !== "test") throw new ApiError(400, "test_only", "v3 onboarding preview is test-only");
+  if (!hasV3OnboardingConfig("test")) {
+    throw new ApiError(503, "v3_not_enabled", "WINGSPAN_V3_ONBOARDING is off or platform creds are unset");
+  }
+
+  const w9 = (worker.w9SeededData as Record<string, string> | null) ?? {};
+  const result = await runV3OnboardingPreviewIndividual({
+    environment: "test",
+    externalId: worker.externalId,
+    email: worker.email,
+    firstName: worker.firstName,
+    lastName: worker.lastName,
+    dateOfBirth: w9["dateOfBirth"],
+    address: {
+      line1: w9["addressLine1"],
+      city: w9["city"],
+      state: w9["state"],
+      postalCode: w9["postalCode"],
+      country: w9["country"],
+    },
+    ssnEncrypted: worker.ssnEncrypted,
+    acceptedAtIso: new Date().toISOString(),
+  });
+
+  return c.json({ ok: true, ...result });
 });
 
 adminRoutes.get("/tenants/:id/payables", async (c) => {
