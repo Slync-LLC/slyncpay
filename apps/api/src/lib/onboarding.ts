@@ -1,19 +1,40 @@
 import { getWingspanClient, type WingspanEnvironment } from "./wingspan.js";
 import { decrypt } from "./crypto.js";
 import { sanitizeName } from "./worker-repair.js";
-import type { WingspanCustomerData } from "@slyncpay/wingspan";
+import {
+  WINGSPAN_ACK_VERSIONS,
+  type WingspanCustomerData,
+  type WingspanBusinessData,
+  type WingspanFederalTaxClassification,
+} from "@slyncpay/wingspan";
 
-/** Subset of workers.w9SeededData we read for the v2 customer payload. */
-interface W9Blob {
-  jobTitle?: string;
-  dateOfBirth?: string;
-  phone?: string;
-  country?: string;
+interface AddrBlob {
   addressLine1?: string;
   addressLine2?: string;
   city?: string;
   state?: string;
   postalCode?: string;
+  country?: string;
+}
+
+/** Subset of workers.w9SeededData we read for the v2 customer payload. */
+interface W9Blob extends AddrBlob {
+  jobTitle?: string;
+  dateOfBirth?: string;
+  phone?: string;
+  // Business contractor fields (present when contractorType === "business"). The
+  // personal address fields above are the representative's home address.
+  contractorType?: "individual" | "business";
+  legalBusinessName?: string;
+  federalTaxClassification?: WingspanFederalTaxClassification;
+  regionOfFormation?: string;
+  yearOfFormation?: string;
+  businessPhone?: string;
+  businessEmail?: string;
+  businessWebsite?: string;
+  businessIndustry?: string;
+  ownershipPercent?: string;
+  businessAddress?: AddrBlob;
 }
 
 export interface LowFrictionResult {
@@ -47,6 +68,10 @@ export async function runLowFrictionOnboarding(params: {
     ssn?: string | null | undefined;
     /** Encrypted SSN (worker row). Decrypted here when ssn isn't supplied. */
     ssnEncrypted?: string | null | undefined;
+    /** Plaintext EIN (business, create path). Takes precedence over einEncrypted. */
+    ein?: string | null | undefined;
+    /** Encrypted EIN (business, worker row). */
+    einEncrypted?: string | null | undefined;
   };
   environment: WingspanEnvironment;
   payeeId: string;
@@ -57,10 +82,16 @@ export async function runLowFrictionOnboarding(params: {
   const log = params.workerIdForLog ?? payeeId;
   const wingspan = getWingspanClient(environment).withChild(payeeId);
   const w9 = (seed.w9SeededData ?? {}) as W9Blob;
+  const isBusiness = w9.contractorType === "business";
+
+  const ssn = decryptOr(seed.ssn, seed.ssnEncrypted, `ssn ${log}`);
 
   // 1. Create the customer entity (idempotent — ignore "already exists").
   try {
-    await wingspan.createOnboardingCustomer({ type: "Individual", country: w9.country ?? "US" });
+    await wingspan.createOnboardingCustomer({
+      type: isBusiness ? "Business" : "Individual",
+      country: w9.country ?? "US",
+    });
   } catch (err) {
     const msg = (err as Error).message ?? "";
     if (!/already|exist|conflict/i.test(msg)) {
@@ -68,34 +99,75 @@ export async function runLowFrictionOnboarding(params: {
     }
   }
 
-  // 2. Submit identity + tax data.
-  let ssn: string | undefined = seed.ssn ?? undefined;
-  if (!ssn && seed.ssnEncrypted) {
-    try {
-      ssn = decrypt(seed.ssnEncrypted);
-    } catch (err) {
-      console.error(`[onboarding] ssn decrypt ${log}:`, (err as Error).message);
-    }
-  }
-  const customerData: WingspanCustomerData = { country: w9.country ?? "US" };
+  // 2. Submit the entity data. For an individual that's identity + tax; for a
+  //    business it's the company block plus a separate Representative (the human
+  //    whose SSN drives the identity check).
   const firstName = sanitizeName(seed.firstName);
   const lastName = sanitizeName(seed.lastName);
-  if (firstName) customerData.firstName = firstName;
-  if (lastName) customerData.lastName = lastName;
-  if (w9.jobTitle) customerData.occupation = w9.jobTitle;
-  if (w9.dateOfBirth) customerData.dateOfBirth = w9.dateOfBirth;
-  if (ssn) customerData.individualTaxId = ssn;
-  if (w9.addressLine1) customerData.addressLine1 = w9.addressLine1;
-  if (w9.addressLine2) customerData.addressLine2 = w9.addressLine2;
-  if (w9.city) customerData.city = w9.city;
-  if (w9.state) customerData.region = w9.state;
-  if (w9.postalCode) customerData.postalCode = w9.postalCode;
-  if (seed.email) customerData.email = seed.email;
-  if (w9.phone) customerData.phoneNumber = w9.phone;
-  try {
-    await wingspan.updateOnboardingCustomer(customerData);
-  } catch (err) {
-    console.error(`[onboarding] updateCustomer ${log}:`, (err as Error).message);
+
+  if (isBusiness) {
+    const ein = decryptOr(seed.ein, seed.einEncrypted, `ein ${log}`);
+    const biz: WingspanBusinessData = { country: w9.country ?? "US" };
+    if (w9.legalBusinessName) biz.legalBusinessName = w9.legalBusinessName;
+    if (ein) biz.businessTaxId = ein;
+    if (w9.federalTaxClassification) biz.federalTaxClassification = w9.federalTaxClassification;
+    if (w9.regionOfFormation) biz.regionOfFormation = w9.regionOfFormation;
+    if (w9.yearOfFormation) biz.yearOfFormation = w9.yearOfFormation;
+    if (w9.businessPhone) biz.phoneNumber = w9.businessPhone;
+    if (w9.businessEmail) biz.email = w9.businessEmail;
+    if (w9.businessWebsite) biz.website = w9.businessWebsite;
+    if (w9.businessIndustry) biz.industry = w9.businessIndustry;
+    const ba = w9.businessAddress ?? {};
+    if (ba.addressLine1) biz.addressLine1 = ba.addressLine1;
+    if (ba.addressLine2) biz.addressLine2 = ba.addressLine2;
+    if (ba.city) biz.city = ba.city;
+    if (ba.state) biz.region = ba.state;
+    if (ba.postalCode) biz.postalCode = ba.postalCode;
+    try {
+      await wingspan.updateOnboardingCustomer(biz);
+    } catch (err) {
+      console.error(`[onboarding] updateBusinessEntity ${log}:`, (err as Error).message);
+    }
+
+    // The authorized representative (their SSN drives the identity check).
+    const rep: WingspanCustomerData = { country: w9.country ?? "US" };
+    if (firstName) rep.firstName = firstName;
+    if (lastName) rep.lastName = lastName;
+    if (w9.dateOfBirth) rep.dateOfBirth = w9.dateOfBirth;
+    if (ssn) rep.individualTaxId = ssn;
+    if (w9.ownershipPercent) rep.ownershipPercent = w9.ownershipPercent;
+    if (w9.jobTitle) rep.occupation = w9.jobTitle;
+    if (w9.phone) rep.phoneNumber = w9.phone;
+    if (seed.email) rep.email = seed.email;
+    if (w9.addressLine1) rep.addressLine1 = w9.addressLine1;
+    if (w9.addressLine2) rep.addressLine2 = w9.addressLine2;
+    if (w9.city) rep.city = w9.city;
+    if (w9.state) rep.region = w9.state;
+    if (w9.postalCode) rep.postalCode = w9.postalCode;
+    try {
+      await wingspan.updateOnboardingRepresentative(rep);
+    } catch (err) {
+      console.error(`[onboarding] updateRepresentative ${log}:`, (err as Error).message);
+    }
+  } else {
+    const customerData: WingspanCustomerData = { country: w9.country ?? "US" };
+    if (firstName) customerData.firstName = firstName;
+    if (lastName) customerData.lastName = lastName;
+    if (w9.jobTitle) customerData.occupation = w9.jobTitle;
+    if (w9.dateOfBirth) customerData.dateOfBirth = w9.dateOfBirth;
+    if (ssn) customerData.individualTaxId = ssn;
+    if (w9.addressLine1) customerData.addressLine1 = w9.addressLine1;
+    if (w9.addressLine2) customerData.addressLine2 = w9.addressLine2;
+    if (w9.city) customerData.city = w9.city;
+    if (w9.state) customerData.region = w9.state;
+    if (w9.postalCode) customerData.postalCode = w9.postalCode;
+    if (seed.email) customerData.email = seed.email;
+    if (w9.phone) customerData.phoneNumber = w9.phone;
+    try {
+      await wingspan.updateOnboardingCustomer(customerData);
+    } catch (err) {
+      console.error(`[onboarding] updateCustomer ${log}:`, (err as Error).message);
+    }
   }
 
   // 3. Run the Tax verification (TIN/W-9). Banking is intentionally skipped —
@@ -106,7 +178,28 @@ export async function runLowFrictionOnboarding(params: {
     console.error(`[onboarding] verifyTax ${log}:`, (err as Error).message);
   }
 
-  // 4. Record W-9 consent against the payer that pays them.
+  // 4. Certify the W-9 + consent to electronic 1099 delivery, on the nurse's
+  //    behalf. W9Certification is the ACTUAL W-9 certification — without it the
+  //    nurse's W-9 stays uncertified. (Wallet/banking acks are handled by the
+  //    embedded payout component when the nurse picks the Wallet.)
+  try {
+    await wingspan.postOnboardingAcknowledgement(
+      "W9Certification",
+      WINGSPAN_ACK_VERSIONS.W9Certification,
+    );
+  } catch (err) {
+    console.error(`[onboarding] w9Certification ${log}:`, (err as Error).message);
+  }
+  try {
+    await wingspan.postOnboardingAcknowledgement(
+      "ElectronicTaxFormConsent",
+      WINGSPAN_ACK_VERSIONS.ElectronicTaxFormConsent,
+    );
+  } catch (err) {
+    console.error(`[onboarding] electronicTaxFormConsent ${log}:`, (err as Error).message);
+  }
+
+  // 5. Authorize sharing the W-9 with the payer that pays them.
   try {
     await wingspan.recordW9Consent(payerId);
   } catch (err) {
@@ -122,6 +215,22 @@ export async function runLowFrictionOnboarding(params: {
   }
 
   return { taxStatus, taxVerified: taxStatus?.toLowerCase() === "verified" };
+}
+
+/** Return the plaintext if given, else decrypt the ciphertext (best-effort). */
+function decryptOr(
+  plaintext: string | null | undefined,
+  ciphertext: string | null | undefined,
+  label: string,
+): string | undefined {
+  if (plaintext) return plaintext;
+  if (!ciphertext) return undefined;
+  try {
+    return decrypt(ciphertext);
+  } catch (err) {
+    console.error(`[onboarding] decrypt ${label}:`, (err as Error).message);
+    return undefined;
+  }
 }
 
 /**

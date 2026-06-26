@@ -58,11 +58,20 @@ export function wingspanOnboardingUrl(environment: WingspanEnvironment, token: s
 }
 
 /**
- * Payout-method chooser deep-link. Only lands here (instead of the wizard) once
- * the contractor's Tax verification is complete — see runLowFrictionOnboarding.
+ * Payout-method chooser deep-link. DEPRECATED for embedding — `my.wingspan.app`
+ * refuses framing. Kept only as a non-iframe fallback (e.g. open in a new tab).
+ * The supported embed is the `@wingspan/embedded-sdk` ManagePayoutMethod
+ * component, which uses the session token + wingspanEmbedBaseUrl below.
  */
 export function wingspanPayoutChooserUrl(environment: WingspanEnvironment, token: string): string {
   return `${wingspanUiBaseUrl(environment)}/member/settings/payment-methods/add-payout-method/type?requestingToken=${encodeURIComponent(token)}`;
+}
+
+/** Embed host for the Wingspan embedded SDK (`Wingspan.init({ baseUrl })`). */
+export function wingspanEmbedBaseUrl(environment: WingspanEnvironment): string {
+  return environment === "test"
+    ? "https://staging-embedded.wingspan.app"
+    : "https://embedded.wingspan.app";
 }
 
 export { hasSandboxConfig, hasV3Config };

@@ -11,7 +11,7 @@ import {
   getWingspanClient,
   getWingspanV3Client,
   wingspanOnboardingUrl,
-  wingspanPayoutChooserUrl,
+  wingspanEmbedBaseUrl,
   hasSandboxConfig,
   hasV3Config,
   entityChildUserId,
@@ -62,21 +62,25 @@ const createWorkerSchema = z.object({
     .object({
       legalBusinessName: z.string().max(200).optional(),
       ein: z.string().regex(/^\d{2}-?\d{7}$/, "ein must be 9 digits").optional(),
-      structure: z
+      federalTaxClassification: z
         .enum([
           "SoleProprietorship",
           "LlcSingleMember",
           "CorporationS",
           "CorporationC",
           "Partnership",
-          "LLCCorporationS",
-          "LLCCorporationC",
-          "LLCPartnership",
+          "LlcCorporationS",
+          "LlcCorporationC",
+          "NotForProfitOrganization",
         ])
         .optional(),
-      stateOfIncorporation: z.string().length(2).optional(),
-      yearOfIncorporation: z.string().regex(/^\d{4}$/).optional(),
+      regionOfFormation: z.string().length(2).optional(),
+      yearOfFormation: z.string().regex(/^\d{4}$/).optional(),
       phoneNumber: z.string().max(30).optional(),
+      email: z.string().email().optional(),
+      website: z.string().max(200).optional(),
+      industry: z.string().max(100).optional(),
+      ownershipPercent: z.string().regex(/^\d{1,3}$/).optional(),
       address: z
         .object({
           addressLine1: z.string().optional(),
@@ -178,10 +182,14 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
     ...(body.business
       ? {
           legalBusinessName: body.business.legalBusinessName,
-          structure: body.business.structure,
-          stateOfIncorporation: body.business.stateOfIncorporation,
-          yearOfIncorporation: body.business.yearOfIncorporation,
+          federalTaxClassification: body.business.federalTaxClassification,
+          regionOfFormation: body.business.regionOfFormation,
+          yearOfFormation: body.business.yearOfFormation,
           businessPhone: body.business.phoneNumber,
+          businessEmail: body.business.email,
+          businessWebsite: body.business.website,
+          businessIndustry: body.business.industry,
+          ownershipPercent: body.business.ownershipPercent,
           businessAddress: body.business.address,
         }
       : {}),
@@ -239,13 +247,12 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
     }
   }
 
-  // Push profile + member fields so the onboarding wizard pre-fills. The
-  // payerOwnedData.payeeW9Data sent above covers TIN verification; these
-  // PATCH calls cover the wizard UI (per Wingspan's recipe). Impersonation only
-  // works inside our org chain, so skip when detection said otherwise. We keep
-  // this for the fallback wizard (e.g. when tax verification needs review).
+  // For INDIVIDUALS we also seed the User/Member profile so the fallback wizard
+  // pre-fills (e.g. if tax verification needs document review). Business
+  // contractors are fully handled by the v2 customer+representative flow below,
+  // so they skip the member-profile path.
   const isBusiness = body.contractorType === "business";
-  if (inOrgChain) {
+  if (inOrgChain && !isBusiness) {
     await syncWorkerProfileToWingspan(
       { firstName: body.firstName, lastName: body.lastName, w9SeededData, ein: einDigits ?? null },
       environment,
@@ -254,12 +261,11 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
     );
   }
 
-  // v2 low-friction onboarding (individuals): pre-verify identity/tax + record
-  // W-9 consent so we can deep-link straight to the payout chooser. Business
-  // contractors stay on the wizard flow until v3's business model lands.
-  let taxVerified = false;
+  // v2 low-friction onboarding (individual + business): pre-verify identity/tax,
+  // certify the W-9, and record consent server-side, so the nurse only touches
+  // the embedded payout step.
   let taxStatus: string | null = null;
-  if (inOrgChain && !isBusiness) {
+  if (inOrgChain) {
     const result = await runLowFrictionOnboarding({
       seed: {
         firstName: body.firstName,
@@ -267,13 +273,13 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
         email: body.email,
         w9SeededData,
         ssn: ssnDigits ?? null,
+        ein: einDigits ?? null,
       },
       environment,
       payeeId,
       payerId: wingspanPayee.payerId,
       workerIdForLog: body.externalId,
     });
-    taxVerified = result.taxVerified;
     taxStatus = result.taxStatus;
   }
 
@@ -302,18 +308,22 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
 
   if (!worker) throw new Error("Failed to create worker");
 
-  // Get a session token for an immediate embedded-onboarding URL. The URL is
-  // iframe-safe and the tenant can drop it directly into <iframe src=...>.
-  // Once tax is verified we deep-link straight to the payout chooser; otherwise
-  // we fall back to the full onboarding wizard. Falls back to null if Wingspan
-  // rejects the session call — caller can refetch via GET .../onboarding-link.
+  // Mint a session token for the embedded payout SDK (the supported embed path).
+  // The contractor's identity/tax/W-9 are already done server-side, so NurseIO
+  // only embeds the payout-method step via @wingspan/embedded-sdk using these.
+  // `embeddedOnboardingUrl` is kept as a NON-iframe fallback (new tab / webview)
+  // — Wingspan's pages refuse framing. All null if the session call fails.
+  let sessionToken: string | null = null;
+  let payeeUserId: string | null = null;
+  let embedBaseUrl: string | null = null;
   let embeddedOnboardingUrl: string | null = null;
   let embeddedOnboardingExpiresAt: string | null = null;
   try {
     const session = await getWingspanClient(environment).getSessionToken(payeeId);
-    embeddedOnboardingUrl = taxVerified
-      ? wingspanPayoutChooserUrl(environment, session.token)
-      : wingspanOnboardingUrl(environment, session.token);
+    sessionToken = session.token;
+    payeeUserId = payeeId;
+    embedBaseUrl = wingspanEmbedBaseUrl(environment);
+    embeddedOnboardingUrl = wingspanOnboardingUrl(environment, session.token);
     embeddedOnboardingExpiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
   } catch {
     // Non-fatal
@@ -333,6 +343,9 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
   return c.json(
     {
       ...toWorkerDTO(worker),
+      sessionToken,
+      payeeId: payeeUserId,
+      embedBaseUrl,
       embeddedOnboardingUrl,
       embeddedOnboardingExpiresAt,
     },
@@ -554,27 +567,18 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
     return c.json({ error: "not_ready", message: "Worker does not have an onboarding account yet" }, 422);
   }
 
-  // Best-effort push latest worker data so the Wingspan onboarding form
-  // shows pre-filled name + address. Doesn't block if the PATCH fails.
-  // Both calls are required: syncWorkerToWingspan writes payerOwnedData
-  // (TIN verification); syncWorkerProfileToWingspan writes the User +
-  // User.Member records (wizard UI pre-fill).
+  // Best-effort: re-push prefill + re-run the v2 onboarding (idempotent). This is
+  // the reliable path for async prod verification — once Tax flips to Verified
+  // the worker's status updates. syncWorkerToWingspan writes payerOwnedData (TIN
+  // verification); the member-profile seed is only for the individual fallback
+  // wizard (business is fully handled by the v2 customer+representative flow).
   const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
-  let taxVerified = worker.taxVerificationStatus?.toLowerCase() === "verified";
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
-    await syncWorkerProfileToWingspan(
-      worker,
-      environment,
-      worker.wingspanPayeeBucketPayeeId,
-      worker.id,
-    );
-
-    // Re-run v2 low-friction onboarding (individuals) — idempotent — and
-    // re-check tax status. This is the reliable path for async prod
-    // verification: once Tax flips to Verified, the deep-link switches to the
-    // payout chooser. payerId comes from the stored bucket payer.
-    if (!isBusiness && worker.wingspanPayerId) {
+    if (!isBusiness) {
+      await syncWorkerProfileToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId, worker.id);
+    }
+    if (worker.wingspanPayerId) {
       const result = await runLowFrictionOnboarding({
         seed: {
           firstName: worker.firstName,
@@ -582,13 +586,13 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
           email: worker.email,
           w9SeededData: worker.w9SeededData,
           ssnEncrypted: worker.ssnEncrypted,
+          einEncrypted: worker.einEncrypted,
         },
         environment,
         payeeId: worker.wingspanPayeeBucketPayeeId,
         payerId: worker.wingspanPayerId,
         workerIdForLog: worker.id,
       });
-      taxVerified = result.taxVerified;
       if (result.taxStatus && result.taxStatus !== worker.taxVerificationStatus) {
         await db
           .update(workers)
@@ -599,17 +603,19 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
   }
 
   const session = await getWingspanClient(environment).getSessionToken(userId);
-
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 60 min
-  const embeddedOnboardingUrl = taxVerified
-    ? wingspanPayoutChooserUrl(environment, session.token)
-    : wingspanOnboardingUrl(environment, session.token);
+  // Non-iframe fallback URL (Wingspan refuses framing — embed via the SDK below).
+  const onboardingUrl = wingspanOnboardingUrl(environment, session.token);
 
   return c.json({
-    embeddedOnboardingUrl,
+    // Supported embed path: hand these to @wingspan/embedded-sdk on the client.
+    sessionToken: session.token,
+    payeeId: userId,
+    embedBaseUrl: wingspanEmbedBaseUrl(environment),
     expiresAt,
-    // Keep `url` for backwards compatibility — same value
-    url: embeddedOnboardingUrl,
+    // Non-iframe fallback (new tab / native webview) — NOT framable.
+    embeddedOnboardingUrl: onboardingUrl,
+    url: onboardingUrl,
   });
 });
 

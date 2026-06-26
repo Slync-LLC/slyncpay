@@ -97,7 +97,49 @@ export interface WingspanCustomerData {
   postalCode?: string;
   email?: string;
   phoneNumber?: string;
+  /** Authorized representative only (business flow): their ownership share. */
+  ownershipPercent?: string;
 }
+
+/** Federal tax classification for a business customer entity (v2). */
+export type WingspanFederalTaxClassification =
+  | "SoleProprietorship"
+  | "LlcSingleMember"
+  | "CorporationS"
+  | "CorporationC"
+  | "Partnership"
+  | "LlcCorporationS"
+  | "LlcCorporationC"
+  | "NotForProfitOrganization";
+
+/**
+ * Business identity payload for `PATCH /v2/onboarding/customer/Entity` when the
+ * customer entity was created with `type:"Business"`. `businessTaxId` is the EIN.
+ */
+export interface WingspanBusinessData {
+  legalBusinessName?: string;
+  businessTaxId?: string;
+  federalTaxClassification?: WingspanFederalTaxClassification;
+  regionOfFormation?: string;
+  yearOfFormation?: string;
+  addressLine1?: string;
+  addressLine2?: string;
+  city?: string;
+  region?: string;
+  postalCode?: string;
+  country?: string;
+  phoneNumber?: string;
+  email?: string;
+  website?: string;
+  industry?: string;
+}
+
+/** v2 onboarding acknowledgement versions (no API to fetch the current value). */
+export const WINGSPAN_ACK_VERSIONS = {
+  W9Certification: "2024-03-01",
+  W8BenCertification: "2021-10-01",
+  ElectronicTaxFormConsent: "2024-08-01",
+} as const;
 
 /** v2 verification lanes. */
 export type WingspanVerificationLane = "Tax" | "Banking";
@@ -330,9 +372,34 @@ export class WingspanClient {
     return this.request("POST", "/v2/onboarding/customer", body);
   }
 
-  /** Submit identity + tax data (incl. SSN as `individualTaxId`). */
-  updateOnboardingCustomer(customerData: WingspanCustomerData): Promise<unknown> {
+  /**
+   * Submit the customer entity's data — individual identity+tax (SSN as
+   * `individualTaxId`) or, for a Business customer, the company block (EIN as
+   * `businessTaxId`).
+   */
+  updateOnboardingCustomer(customerData: WingspanCustomerData | WingspanBusinessData): Promise<unknown> {
     return this.request("PATCH", "/v2/onboarding/customer/Entity", { customerData });
+  }
+
+  /**
+   * Submit the authorized representative for a Business customer — the human
+   * whose SSN (`individualTaxId`) drives the identity check.
+   */
+  updateOnboardingRepresentative(customerData: WingspanCustomerData): Promise<unknown> {
+    return this.request("PATCH", "/v2/onboarding/customer/Representative", { customerData });
+  }
+
+  /**
+   * Post an onboarding acknowledgement on the contractor's behalf — e.g.
+   * `W9Certification` (the actual W-9 cert) or `ElectronicTaxFormConsent`.
+   * Use the version from WINGSPAN_ACK_VERSIONS.
+   */
+  postOnboardingAcknowledgement(name: string, version: string): Promise<unknown> {
+    return this.request("POST", `/v2/onboarding/acknowledgements/${name}`, {
+      acknowledgementName: name,
+      acknowledgementStatus: "Given",
+      version,
+    });
   }
 
   /** Kick off a verification lane (Tax for TIN/W-9; Banking only for Wallet). */

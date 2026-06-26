@@ -34,7 +34,7 @@ import {
   hasSandboxConfig,
   getWingspanClient,
   wingspanOnboardingUrl,
-  wingspanPayoutChooserUrl,
+  wingspanEmbedBaseUrl,
   hasV3OnboardingConfig,
 } from "../lib/wingspan.js";
 import { runLowFrictionOnboarding } from "../lib/onboarding.js";
@@ -630,41 +630,42 @@ adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
   }
 
   const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
-  let taxVerified = worker.taxVerificationStatus?.toLowerCase() === "verified";
   if (worker.wingspanPayeeBucketPayeeId) {
     await syncWorkerToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId);
-    await syncWorkerProfileToWingspan(
-      worker,
-      env,
-      worker.wingspanPayeeBucketPayeeId,
-      worker.id,
-    );
-    if (!isBusiness && worker.wingspanPayerId) {
-      const result = await runLowFrictionOnboarding({
+    if (!isBusiness) {
+      await syncWorkerProfileToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId, worker.id);
+    }
+    if (worker.wingspanPayerId) {
+      await runLowFrictionOnboarding({
         seed: {
           firstName: worker.firstName,
           lastName: worker.lastName,
           email: worker.email,
           w9SeededData: worker.w9SeededData,
           ssnEncrypted: worker.ssnEncrypted,
+          einEncrypted: worker.einEncrypted,
         },
         environment: env,
         payeeId: worker.wingspanPayeeBucketPayeeId,
         payerId: worker.wingspanPayerId,
         workerIdForLog: worker.id,
       });
-      taxVerified = result.taxVerified;
     }
   }
 
   const session = await getWingspanClient(env).getSessionToken(userId);
-
   const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
-  const url = taxVerified
-    ? wingspanPayoutChooserUrl(env, session.token)
-    : wingspanOnboardingUrl(env, session.token);
+  const onboardingUrl = wingspanOnboardingUrl(env, session.token);
 
-  return c.json({ url, expiresAt, environment: env, onboardingStatus: worker.onboardingStatus });
+  return c.json({
+    sessionToken: session.token,
+    payeeId: userId,
+    embedBaseUrl: wingspanEmbedBaseUrl(env),
+    url: onboardingUrl,
+    expiresAt,
+    environment: env,
+    onboardingStatus: worker.onboardingStatus,
+  });
 });
 
 // PREVIEW — exercise the v3 server-side onboarding (Flow 2, individual) against

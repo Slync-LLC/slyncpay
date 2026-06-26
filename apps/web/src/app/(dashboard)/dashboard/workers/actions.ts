@@ -15,10 +15,14 @@ interface CreateWorkerInput {
   business?: {
     legalBusinessName?: string;
     ein?: string;
-    structure?: string;
-    stateOfIncorporation?: string;
-    yearOfIncorporation?: string;
+    federalTaxClassification?: string;
+    regionOfFormation?: string;
+    yearOfFormation?: string;
     phoneNumber?: string;
+    email?: string;
+    website?: string;
+    industry?: string;
+    ownershipPercent?: string;
     address?: Record<string, string>;
   };
 }

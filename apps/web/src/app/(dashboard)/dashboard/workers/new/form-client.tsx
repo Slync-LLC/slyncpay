@@ -7,16 +7,16 @@ import { ChevronLeft } from "lucide-react";
 import { createWorker } from "../actions";
 import { US_STATES, maskSsn, maskPhone, maskZip } from "@/lib/masks";
 
-// Federal tax classification — value is the Wingspan `company.structure` enum.
-const STRUCTURES: Array<{ value: string; label: string }> = [
+// Federal tax classification — value is the Wingspan v2 `federalTaxClassification` enum.
+const TAX_CLASSIFICATIONS: Array<{ value: string; label: string }> = [
   { value: "SoleProprietorship", label: "Sole proprietorship" },
   { value: "LlcSingleMember", label: "LLC (single member)" },
   { value: "Partnership", label: "Partnership" },
   { value: "CorporationS", label: "S corporation" },
   { value: "CorporationC", label: "C corporation" },
-  { value: "LLCCorporationS", label: "LLC taxed as S corp" },
-  { value: "LLCCorporationC", label: "LLC taxed as C corp" },
-  { value: "LLCPartnership", label: "LLC taxed as partnership" },
+  { value: "LlcCorporationS", label: "LLC taxed as S corp" },
+  { value: "LlcCorporationC", label: "LLC taxed as C corp" },
+  { value: "NotForProfitOrganization", label: "Not-for-profit organization" },
 ];
 
 export function NewWorkerForm({
@@ -52,10 +52,12 @@ export function NewWorkerForm({
   const [contractorType, setContractorType] = useState<"individual" | "business">("individual");
   const [legalBusinessName, setLegalBusinessName] = useState("");
   const [ein, setEin] = useState("");
-  const [structure, setStructure] = useState("");
-  const [stateOfIncorporation, setStateOfIncorporation] = useState("");
-  const [yearOfIncorporation, setYearOfIncorporation] = useState("");
+  const [federalTaxClassification, setFederalTaxClassification] = useState("");
+  const [regionOfFormation, setRegionOfFormation] = useState("");
+  const [yearOfFormation, setYearOfFormation] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
+  const [businessWebsite, setBusinessWebsite] = useState("");
+  const [businessIndustry, setBusinessIndustry] = useState("");
   const [bAddr1, setBAddr1] = useState("");
   const [bAddr2, setBAddr2] = useState("");
   const [bCity, setBCity] = useState("");
@@ -114,10 +116,12 @@ export function NewWorkerForm({
       business = {
         legalBusinessName: legalBusinessName.trim(),
         ...(einDigits.length === 9 ? { ein: einDigits } : {}),
-        ...(structure ? { structure } : {}),
-        ...(stateOfIncorporation ? { stateOfIncorporation } : {}),
-        ...(yearOfIncorporation.trim() ? { yearOfIncorporation: yearOfIncorporation.trim() } : {}),
+        ...(federalTaxClassification ? { federalTaxClassification } : {}),
+        ...(regionOfFormation ? { regionOfFormation } : {}),
+        ...(yearOfFormation.trim() ? { yearOfFormation: yearOfFormation.trim() } : {}),
         ...(businessPhone.trim() ? { phoneNumber: businessPhone.replace(/\D/g, "") } : {}),
+        ...(businessWebsite.trim() ? { website: businessWebsite.trim() } : {}),
+        ...(businessIndustry.trim() ? { industry: businessIndustry.trim() } : {}),
         ...(Object.keys(bAddress).length > 1 ? { address: bAddress } : {}),
       };
     }
@@ -301,27 +305,27 @@ export function NewWorkerForm({
             </div>
 
             <Field label="Federal tax classification">
-              <select value={structure} onChange={(e) => setStructure(e.target.value)} className="input">
+              <select value={federalTaxClassification} onChange={(e) => setFederalTaxClassification(e.target.value)} className="input">
                 <option value="">—</option>
-                {STRUCTURES.map((s) => (
+                {TAX_CLASSIFICATIONS.map((s) => (
                   <option key={s.value} value={s.value}>{s.label}</option>
                 ))}
               </select>
             </Field>
 
             <div className="grid grid-cols-3 gap-3">
-              <Field label="State of incorporation">
-                <select value={stateOfIncorporation} onChange={(e) => setStateOfIncorporation(e.target.value)} className="input">
+              <Field label="State of formation">
+                <select value={regionOfFormation} onChange={(e) => setRegionOfFormation(e.target.value)} className="input">
                   <option value="">—</option>
                   {US_STATES.map((s) => (
                     <option key={s.code} value={s.code}>{s.code}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="Year of incorporation">
+              <Field label="Year of formation">
                 <input
-                  value={yearOfIncorporation}
-                  onChange={(e) => setYearOfIncorporation(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                  value={yearOfFormation}
+                  onChange={(e) => setYearOfFormation(e.target.value.replace(/\D/g, "").slice(0, 4))}
                   placeholder="2020"
                   className="input"
                 />
@@ -332,6 +336,25 @@ export function NewWorkerForm({
                   value={businessPhone}
                   onChange={(e) => setBusinessPhone(maskPhone(e.target.value))}
                   placeholder="(555) 555-5555"
+                  className="input"
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Website">
+                <input
+                  value={businessWebsite}
+                  onChange={(e) => setBusinessWebsite(e.target.value)}
+                  placeholder="https://example.com"
+                  className="input"
+                />
+              </Field>
+              <Field label="Industry">
+                <input
+                  value={businessIndustry}
+                  onChange={(e) => setBusinessIndustry(e.target.value)}
+                  placeholder="e.g. HealthCareAndSocialAssistance"
                   className="input"
                 />
               </Field>
