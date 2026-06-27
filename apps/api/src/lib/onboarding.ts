@@ -113,7 +113,8 @@ export async function runLowFrictionOnboarding(params: {
     if (w9.federalTaxClassification) biz.federalTaxClassification = w9.federalTaxClassification;
     if (w9.regionOfFormation) biz.regionOfFormation = w9.regionOfFormation;
     if (w9.yearOfFormation) biz.yearOfFormation = w9.yearOfFormation;
-    if (w9.businessPhone) biz.phoneNumber = w9.businessPhone;
+    const bizPhone = toE164(w9.businessPhone);
+    if (bizPhone) biz.phoneNumber = bizPhone;
     if (w9.businessEmail) biz.email = w9.businessEmail;
     if (w9.businessWebsite) biz.website = w9.businessWebsite;
     if (w9.businessIndustry) biz.industry = w9.businessIndustry;
@@ -137,7 +138,8 @@ export async function runLowFrictionOnboarding(params: {
     if (ssn) rep.individualTaxId = ssn;
     if (w9.ownershipPercent) rep.ownershipPercent = w9.ownershipPercent;
     if (w9.jobTitle) rep.occupation = w9.jobTitle;
-    if (w9.phone) rep.phoneNumber = w9.phone;
+    const repPhone = toE164(w9.phone);
+    if (repPhone) rep.phoneNumber = repPhone;
     if (seed.email) rep.email = seed.email;
     if (w9.addressLine1) rep.addressLine1 = w9.addressLine1;
     if (w9.addressLine2) rep.addressLine2 = w9.addressLine2;
@@ -162,7 +164,8 @@ export async function runLowFrictionOnboarding(params: {
     if (w9.state) customerData.region = w9.state;
     if (w9.postalCode) customerData.postalCode = w9.postalCode;
     if (seed.email) customerData.email = seed.email;
-    if (w9.phone) customerData.phoneNumber = w9.phone;
+    const indPhone = toE164(w9.phone);
+    if (indPhone) customerData.phoneNumber = indPhone;
     try {
       await wingspan.updateOnboardingCustomer(customerData);
     } catch (err) {
@@ -206,6 +209,21 @@ export async function runLowFrictionOnboarding(params: {
   }
 
   return { taxStatus, taxVerified: taxStatus?.toLowerCase() === "verified" };
+}
+
+/**
+ * Wingspan v2 requires E.164 phone numbers — and rejects the ENTIRE customerData
+ * PATCH (every field reads "missing", tax can't verify) if the phone isn't E.164.
+ * Our stored phone is bare digits, so normalize to +1XXXXXXXXXX for US.
+ */
+function toE164(phone: string | null | undefined): string | undefined {
+  if (!phone) return undefined;
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return undefined;
+  if (phone.trim().startsWith("+")) return `+${digits}`;
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+  return `+${digits}`; // best effort for other lengths
 }
 
 /** Return the plaintext if given, else decrypt the ciphertext (best-effort). */
