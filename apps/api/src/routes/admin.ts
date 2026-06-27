@@ -630,7 +630,8 @@ adminRoutes.post("/workers/:id/onboarding-link", async (c) => {
   }
 
   const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
-  if (worker.wingspanPayeeBucketPayeeId) {
+  const provisioned = worker.taxVerificationStatus?.toLowerCase() === "verified";
+  if (worker.wingspanPayeeBucketPayeeId && !provisioned) {
     await syncWorkerToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId);
     if (!isBusiness) {
       await syncWorkerProfileToWingspan(worker, env, worker.wingspanPayeeBucketPayeeId, worker.id);

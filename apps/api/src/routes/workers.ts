@@ -567,13 +567,15 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
     return c.json({ error: "not_ready", message: "Worker does not have an onboarding account yet" }, 422);
   }
 
-  // Best-effort: re-push prefill + re-run the v2 onboarding (idempotent). This is
-  // the reliable path for async prod verification — once Tax flips to Verified
-  // the worker's status updates. syncWorkerToWingspan writes payerOwnedData (TIN
-  // verification); the member-profile seed is only for the individual fallback
-  // wizard (business is fully handled by the v2 customer+representative flow).
+  // Fast path: once the worker is fully provisioned (Tax verified) we just mint
+  // the embed token — re-running the whole onboarding pipeline on every link
+  // fetch is what made this endpoint ~10s. We only re-run when NOT yet verified
+  // (async prod verification still pending, or a pre-v2 worker being backfilled).
+  // syncWorkerToWingspan writes payerOwnedData (TIN); the member-profile seed is
+  // only for the individual fallback wizard.
   const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
-  if (worker.wingspanPayeeBucketPayeeId) {
+  const provisioned = worker.taxVerificationStatus?.toLowerCase() === "verified";
+  if (worker.wingspanPayeeBucketPayeeId && !provisioned) {
     await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
     if (!isBusiness) {
       await syncWorkerProfileToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId, worker.id);

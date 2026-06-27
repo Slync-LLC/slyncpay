@@ -170,66 +170,32 @@ export async function runLowFrictionOnboarding(params: {
     }
   }
 
-  // 3. Run the Tax verification (TIN/W-9).
-  try {
-    await wingspan.runOnboardingVerification("Tax");
-  } catch (err) {
-    console.error(`[onboarding] verifyTax ${log}:`, (err as Error).message);
-  }
-
-  // 4. Certify the W-9 + consent to electronic 1099 delivery, on the nurse's
-  //    behalf. W9Certification is the ACTUAL W-9 certification — without it the
-  //    nurse's W-9 stays uncertified. (Wallet/banking acks are handled by the
-  //    embedded payout component when the nurse picks the Wallet.)
-  try {
-    await wingspan.postOnboardingAcknowledgement(
-      "W9Certification",
-      WINGSPAN_ACK_VERSIONS.W9Certification,
-    );
-  } catch (err) {
-    console.error(`[onboarding] w9Certification ${log}:`, (err as Error).message);
-  }
-  try {
-    await wingspan.postOnboardingAcknowledgement(
-      "ElectronicTaxFormConsent",
-      WINGSPAN_ACK_VERSIONS.ElectronicTaxFormConsent,
-    );
-  } catch (err) {
-    console.error(`[onboarding] electronicTaxFormConsent ${log}:`, (err as Error).message);
-  }
-
-  // 5. Authorize sharing the W-9 with the payer that pays them.
-  try {
-    await wingspan.recordW9Consent(payerId);
-  } catch (err) {
-    console.error(`[onboarding] w9Consent ${log}:`, (err as Error).message);
-  }
-
-  // 6. Pre-activate the Wingspan Wallet so it's a selectable (and defaultable)
-  //    payout option in the embedded component — without these the Wallet shows
-  //    "pending activation" and won't persist. Post the ToS/privacy + banking
-  //    acknowledgements and run the Banking verification. Best-effort; a nurse
-  //    who picks ACH/instant is unaffected. (The Wallet Visa CARD is a separate
-  //    Wingspan-side capability that's still pending.)
-  const walletAcks: Array<[string, string]> = [
-    ["WingspanTosAcceptance", WINGSPAN_ACK_VERSIONS.WingspanTosAcceptance],
-    ["WingspanPrivacyPolicyAcceptance", WINGSPAN_ACK_VERSIONS.WingspanPrivacyPolicyAcceptance],
-    ["DepositAccountHolderAgreement", WINGSPAN_ACK_VERSIONS.DepositAccountHolderAgreement],
-    ["LeadBankTerms", WINGSPAN_ACK_VERSIONS.LeadBankTerms],
-    ["ElectronicDisclosureAndConsent", WINGSPAN_ACK_VERSIONS.ElectronicDisclosureAndConsent],
+  // 3. The remaining steps are all independent of each other (verifications, the
+  //    W-9 + 1099 + Wallet acknowledgements, and the share-W-9 consent), so fire
+  //    them CONCURRENTLY — running them serially is what made this ~10s. Each is
+  //    best-effort. W9Certification is the ACTUAL W-9 certification; the Wallet
+  //    acks + Banking verification pre-activate the Wingspan Wallet so it's a
+  //    selectable/defaultable payout option (the Wallet Visa CARD is separately
+  //    pending on Wingspan).
+  const ack = (name: keyof typeof WINGSPAN_ACK_VERSIONS) =>
+    wingspan.postOnboardingAcknowledgement(name, WINGSPAN_ACK_VERSIONS[name]);
+  const tasks: Array<[string, Promise<unknown>]> = [
+    ["verifyTax", wingspan.runOnboardingVerification("Tax")],
+    ["w9Certification", ack("W9Certification")],
+    ["electronicTaxFormConsent", ack("ElectronicTaxFormConsent")],
+    ["w9Consent", wingspan.recordW9Consent(payerId)],
+    ["ack:WingspanTosAcceptance", ack("WingspanTosAcceptance")],
+    ["ack:WingspanPrivacyPolicyAcceptance", ack("WingspanPrivacyPolicyAcceptance")],
+    ["ack:DepositAccountHolderAgreement", ack("DepositAccountHolderAgreement")],
+    ["ack:LeadBankTerms", ack("LeadBankTerms")],
+    ["ack:ElectronicDisclosureAndConsent", ack("ElectronicDisclosureAndConsent")],
+    ["verifyBanking", wingspan.runOnboardingVerification("Banking")],
   ];
-  for (const [name, version] of walletAcks) {
-    try {
-      await wingspan.postOnboardingAcknowledgement(name, version);
-    } catch (err) {
-      console.error(`[onboarding] walletAck ${name} ${log}:`, (err as Error).message);
-    }
-  }
-  try {
-    await wingspan.runOnboardingVerification("Banking");
-  } catch (err) {
-    console.error(`[onboarding] verifyBanking ${log}:`, (err as Error).message);
-  }
+  await Promise.all(
+    tasks.map(([label, p]) =>
+      p.catch((err: unknown) => console.error(`[onboarding] ${label} ${log}:`, (err as Error).message)),
+    ),
+  );
 
   // 5. Read back the Tax status.
   let taxStatus: string | null = null;
