@@ -136,9 +136,19 @@ export interface WingspanBusinessData {
 
 /** v2 onboarding acknowledgement versions (no API to fetch the current value). */
 export const WINGSPAN_ACK_VERSIONS = {
+  // Tax / 1099
   W9Certification: "2024-03-01",
   W8BenCertification: "2021-10-01",
   ElectronicTaxFormConsent: "2024-08-01",
+  // Wingspan Wallet prerequisites (banking)
+  WingspanTosAcceptance: "2024-07-22",
+  WingspanPrivacyPolicyAcceptance: "2024-07-22",
+  DepositAccountHolderAgreement: "2024-07-22",
+  LeadBankTerms: "2022-08-09",
+  ElectronicDisclosureAndConsent: "2024-08-01",
+  // Wingspan Wallet Visa card (separate, Wingspan-side issuance still pending)
+  DebitCardHolderAgreement: "2022-07-22",
+  CashBackPromotionAgreement: "2022-10-04",
 } as const;
 
 /** v2 verification lanes. */

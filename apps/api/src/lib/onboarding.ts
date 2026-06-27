@@ -170,8 +170,7 @@ export async function runLowFrictionOnboarding(params: {
     }
   }
 
-  // 3. Run the Tax verification (TIN/W-9). Banking is intentionally skipped —
-  //    it only matters for the Wingspan Wallet, which the nurse can pick later.
+  // 3. Run the Tax verification (TIN/W-9).
   try {
     await wingspan.runOnboardingVerification("Tax");
   } catch (err) {
@@ -204,6 +203,32 @@ export async function runLowFrictionOnboarding(params: {
     await wingspan.recordW9Consent(payerId);
   } catch (err) {
     console.error(`[onboarding] w9Consent ${log}:`, (err as Error).message);
+  }
+
+  // 6. Pre-activate the Wingspan Wallet so it's a selectable (and defaultable)
+  //    payout option in the embedded component — without these the Wallet shows
+  //    "pending activation" and won't persist. Post the ToS/privacy + banking
+  //    acknowledgements and run the Banking verification. Best-effort; a nurse
+  //    who picks ACH/instant is unaffected. (The Wallet Visa CARD is a separate
+  //    Wingspan-side capability that's still pending.)
+  const walletAcks: Array<[string, string]> = [
+    ["WingspanTosAcceptance", WINGSPAN_ACK_VERSIONS.WingspanTosAcceptance],
+    ["WingspanPrivacyPolicyAcceptance", WINGSPAN_ACK_VERSIONS.WingspanPrivacyPolicyAcceptance],
+    ["DepositAccountHolderAgreement", WINGSPAN_ACK_VERSIONS.DepositAccountHolderAgreement],
+    ["LeadBankTerms", WINGSPAN_ACK_VERSIONS.LeadBankTerms],
+    ["ElectronicDisclosureAndConsent", WINGSPAN_ACK_VERSIONS.ElectronicDisclosureAndConsent],
+  ];
+  for (const [name, version] of walletAcks) {
+    try {
+      await wingspan.postOnboardingAcknowledgement(name, version);
+    } catch (err) {
+      console.error(`[onboarding] walletAck ${name} ${log}:`, (err as Error).message);
+    }
+  }
+  try {
+    await wingspan.runOnboardingVerification("Banking");
+  } catch (err) {
+    console.error(`[onboarding] verifyBanking ${log}:`, (err as Error).message);
   }
 
   // 5. Read back the Tax status.
