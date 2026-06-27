@@ -449,7 +449,7 @@ workerRoutes.patch("/:id", zValidator("json", updateWorkerSchema), async (c) => 
   const body = c.req.valid("json");
 
   const [existing] = await db
-    .select({ id: workers.id })
+    .select({ id: workers.id, w9SeededData: workers.w9SeededData })
     .from(workers)
     .where(
       and(
@@ -466,7 +466,12 @@ workerRoutes.patch("/:id", zValidator("json", updateWorkerSchema), async (c) => 
   if (body.lastName !== undefined) updates["lastName"] = body.lastName ?? null;
   if (body.metadata !== undefined) updates["metadata"] = body.metadata;
   if (body.onboardingStatus !== undefined) updates["onboardingStatus"] = body.onboardingStatus;
-  if (body.w9Prefill !== undefined) updates["w9SeededData"] = body.w9Prefill;
+  // Merge (don't overwrite) so a partial prefill update keeps contractorType and
+  // any stored business block — important for reseeding stuck workers.
+  if (body.w9Prefill !== undefined) {
+    const prev = (existing.w9SeededData ?? {}) as Record<string, unknown>;
+    updates["w9SeededData"] = { ...prev, ...body.w9Prefill };
+  }
   if (body.ssn !== undefined) {
     updates["ssnEncrypted"] = body.ssn ? encryptSecret(body.ssn.replace(/\D/g, "")) : null;
   }
