@@ -410,6 +410,48 @@ workerRoutes.get("/:id", async (c) => {
   return c.json(toWorkerDTO(withSsnLast4(worker)));
 });
 
+// Lightweight readiness check for integrators (e.g. NurseIO): is this worker
+// fully set up ("Complete") and payable? Returns explicit booleans so callers
+// don't have to interpret the onboardingStatus enum. Fast DB read — the values
+// are refreshed at create, on each onboarding-link fetch, and on
+// payout-method-confirmed.
+workerRoutes.get("/:id/status", async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id } = c.req.param();
+
+  const [worker] = await db
+    .select({
+      id: workers.id,
+      externalId: workers.externalId,
+      onboardingStatus: workers.onboardingStatus,
+      taxVerificationStatus: workers.taxVerificationStatus,
+    })
+    .from(workers)
+    .where(and(eq(workers.id, id), eq(workers.tenantId, tenantId), eq(workers.environment, environment)))
+    .limit(1);
+
+  if (!worker) throw new NotFoundError("Worker");
+
+  const taxVerified = worker.taxVerificationStatus?.toLowerCase() === "verified";
+  const payable = worker.onboardingStatus === "active";
+  // What's still required before the worker can be paid.
+  const pending: string[] = [];
+  if (!taxVerified) pending.push("tax_verification");
+  if (!payable) pending.push("payout_method");
+
+  return c.json({
+    workerId: worker.id,
+    externalId: worker.externalId,
+    onboardingStatus: worker.onboardingStatus,
+    taxVerificationStatus: worker.taxVerificationStatus ?? null,
+    taxVerified,
+    // The flags integrators care about:
+    requirementsComplete: payable, // true only when active = W-9 done + payout method on file
+    payable, // ready for disbursement
+    pending, // [] when complete; else what's left, e.g. ["payout_method"]
+  });
+});
+
 function withSsnLast4(c: typeof workers.$inferSelect): Record<string, unknown> {
   if (!c.ssnEncrypted) return { ...c, ssnLast4: null };
   try {
