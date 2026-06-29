@@ -292,7 +292,10 @@ workerRoutes.post("/", zValidator("json", createWorkerSchema), async (c) => {
       email: body.email,
       firstName: body.firstName ?? null,
       lastName: body.lastName ?? null,
-      onboardingStatus: "invited",
+      // Once tax verifies, the only thing left is the nurse picking a payout
+      // method (in the embedded SDK) — reflect that as payout_pending instead of
+      // leaving them stuck at "invited". Don't depend on the inbound webhook.
+      onboardingStatus: taxStatus?.toLowerCase() === "verified" ? "payout_pending" : "invited",
       wingspanPayeeBucketPayeeId: wingspanPayee.payeeId,
       wingspanUserId: payeeId,
       wingspanPayerId: wingspanPayee.payerId,
@@ -601,9 +604,17 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
         workerIdForLog: worker.id,
       });
       if (result.taxStatus && result.taxStatus !== worker.taxVerificationStatus) {
+        // Advance invited/w9_pending → payout_pending once tax verifies (don't
+        // wait on the inbound webhook). Never downgrade an already-active worker.
+        const bump =
+          result.taxVerified && (worker.onboardingStatus === "invited" || worker.onboardingStatus === "w9_pending");
         await db
           .update(workers)
-          .set({ taxVerificationStatus: result.taxStatus, updatedAt: new Date() })
+          .set({
+            taxVerificationStatus: result.taxStatus,
+            ...(bump ? { onboardingStatus: "payout_pending" as const } : {}),
+            updatedAt: new Date(),
+          })
           .where(eq(workers.id, worker.id));
       }
     }
@@ -624,6 +635,56 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
     embeddedOnboardingUrl: onboardingUrl,
     url: onboardingUrl,
   });
+});
+
+// Mark a worker payout-ready (→ active). Call this from the embedded SDK's
+// onComplete({ changed: true }) once the nurse has saved a payout method — that
+// callback is the reliable signal a method was added. Guarded: we only flip to
+// active when tax is already Verified, so a worker can't be marked payable
+// before the W-9/TIN check passes.
+workerRoutes.post("/:id/payout-method-confirmed", async (c) => {
+  const { tenantId, environment } = c.var.auth;
+  const { id } = c.req.param();
+
+  const [worker] = await db
+    .select()
+    .from(workers)
+    .where(and(eq(workers.id, id), eq(workers.tenantId, tenantId), eq(workers.environment, environment)))
+    .limit(1);
+  if (!worker) throw new NotFoundError("Worker");
+
+  if (worker.taxVerificationStatus?.toLowerCase() !== "verified") {
+    return c.json(
+      {
+        error: "tax_not_verified",
+        message:
+          "Tax verification is not complete yet — fetch the onboarding link to re-check, then retry once verified.",
+        onboardingStatus: worker.onboardingStatus,
+        taxVerificationStatus: worker.taxVerificationStatus,
+      },
+      409,
+    );
+  }
+
+  const [updated] = await db
+    .update(workers)
+    .set({ onboardingStatus: "active", updatedAt: new Date() })
+    .where(eq(workers.id, id))
+    .returning();
+  if (!updated) throw new Error("Failed to update worker");
+
+  await logAudit({
+    tenantId,
+    actorType: "api_key",
+    actorId: c.var.auth.apiKeyId,
+    action: "worker.payout_method_confirmed",
+    resourceType: "worker",
+    resourceId: id,
+    metadata: {},
+    ipAddress: clientIp(c),
+  });
+
+  return c.json(toWorkerDTO(withSsnLast4(updated)));
 });
 
 // ─── Engagements (worker ↔ entity) ────────────────────────────────────────
