@@ -192,6 +192,11 @@ export async function runLowFrictionOnboarding(params: {
     ["ack:DepositAccountHolderAgreement", ack("DepositAccountHolderAgreement")],
     ["ack:LeadBankTerms", ack("LeadBankTerms")],
     ["ack:ElectronicDisclosureAndConsent", ack("ElectronicDisclosureAndConsent")],
+    // Wallet Visa card acks — post them so the embedded Wallet option isn't
+    // gated on missing card consents. (Actual card issuance is still pending on
+    // Wingspan's side; these acks are harmless if it's the issuance that blocks.)
+    ["ack:DebitCardHolderAgreement", ack("DebitCardHolderAgreement")],
+    ["ack:CashBackPromotionAgreement", ack("CashBackPromotionAgreement")],
     ["verifyBanking", wingspan.runOnboardingVerification("Banking")],
   ];
   await Promise.all(
