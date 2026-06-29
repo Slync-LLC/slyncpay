@@ -582,7 +582,12 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
   // syncWorkerToWingspan writes payerOwnedData (TIN); the member-profile seed is
   // only for the individual fallback wizard.
   const isBusiness = (worker.w9SeededData as { contractorType?: string } | null)?.contractorType === "business";
-  const provisioned = worker.taxVerificationStatus?.toLowerCase() === "verified";
+  // Fully provisioned = tax verified AND already advanced past invited. A
+  // legacy worker that's verified but still "invited" (created before the
+  // wallet-acks / status-advance fixes) is NOT done — re-run to backfill the
+  // Wallet acks and advance it. Otherwise mint the token fast.
+  const provisioned =
+    worker.taxVerificationStatus?.toLowerCase() === "verified" && worker.onboardingStatus !== "invited";
   if (worker.wingspanPayeeBucketPayeeId && !provisioned) {
     await syncWorkerToWingspan(worker, environment, worker.wingspanPayeeBucketPayeeId);
     if (!isBusiness) {
@@ -603,15 +608,17 @@ workerRoutes.get("/:id/onboarding-link", async (c) => {
         payerId: worker.wingspanPayerId,
         workerIdForLog: worker.id,
       });
-      if (result.taxStatus && result.taxStatus !== worker.taxVerificationStatus) {
-        // Advance invited/w9_pending → payout_pending once tax verifies (don't
-        // wait on the inbound webhook). Never downgrade an already-active worker.
-        const bump =
-          result.taxVerified && (worker.onboardingStatus === "invited" || worker.onboardingStatus === "w9_pending");
+      // Advance invited/w9_pending → payout_pending once tax is verified (don't
+      // wait on the inbound webhook). Runs even if taxStatus didn't change, so a
+      // legacy verified-but-invited worker gets unstuck. Never downgrade active.
+      const bump =
+        result.taxVerified && (worker.onboardingStatus === "invited" || worker.onboardingStatus === "w9_pending");
+      const taxChanged = !!result.taxStatus && result.taxStatus !== worker.taxVerificationStatus;
+      if (taxChanged || bump) {
         await db
           .update(workers)
           .set({
-            taxVerificationStatus: result.taxStatus,
+            ...(result.taxStatus ? { taxVerificationStatus: result.taxStatus } : {}),
             ...(bump ? { onboardingStatus: "payout_pending" as const } : {}),
             updatedAt: new Date(),
           })
